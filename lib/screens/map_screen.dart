@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:geolocator/geolocator.dart';
 import '../core/theme/colors.dart';
 import '../core/theme/theme_provider.dart';
-import '../widgets/flood_zone_painter.dart';
 import '../widgets/sos_confirmation_modal.dart';
 import '../widgets/profile_dropdown.dart';
 
@@ -15,50 +16,151 @@ class MapScreen extends StatefulWidget {
 }
 
 class _MapScreenState extends State<MapScreen> {
-  // Pan and zoom state
-  Offset _offset = Offset.zero;
-  double _scale = 1.0;
+  GoogleMapController? _mapController;
   bool _isSOSActive = false;
+  final Set<Marker> _markers = {};
+  final Set<Circle> _circles = {};
+  
+  // Default location (Manila, Philippines)
+  static const LatLng _defaultLocation = LatLng(14.5995, 120.9842);
+  LatLng _currentLocation = _defaultLocation;
 
   // Emergency locations (pinned)
   final List<EmergencyLocation> _emergencyLocations = [
-    EmergencyLocation(
+    const EmergencyLocation(
       name: 'Evacuation Center A',
-      position: const Offset(0.2, 0.3),
+      position: LatLng(14.6020, 120.9880),
       type: EmergencyLocationType.evacuationCenter,
     ),
-    EmergencyLocation(
+    const EmergencyLocation(
       name: 'Medical Station',
-      position: const Offset(0.6, 0.4),
+      position: LatLng(14.6050, 120.9900),
       type: EmergencyLocationType.medicalStation,
     ),
-    EmergencyLocation(
+    const EmergencyLocation(
       name: 'Evacuation Center B',
-      position: const Offset(0.4, 0.6),
+      position: LatLng(14.5980, 120.9920),
       type: EmergencyLocationType.evacuationCenter,
     ),
-    EmergencyLocation(
+    const EmergencyLocation(
       name: 'Relief Center',
-      position: const Offset(0.7, 0.7),
+      position: LatLng(14.6010, 120.9950),
       type: EmergencyLocationType.reliefCenter,
     ),
-    EmergencyLocation(
+    const EmergencyLocation(
       name: 'General Hospital',
-      position: const Offset(0.5, 0.2),
+      position: LatLng(14.6040, 120.9820),
       type: EmergencyLocationType.hospital,
     ),
-    EmergencyLocation(
+    const EmergencyLocation(
       name: 'Police Station 1',
-      position: const Offset(0.3, 0.8),
+      position: LatLng(14.5970, 120.9860),
       type: EmergencyLocationType.policeStation,
     ),
   ];
 
+  @override
+  void initState() {
+    super.initState();
+    _getCurrentLocation();
+    _createMarkers();
+    _createFloodZones();
+  }
+
+  Future<void> _getCurrentLocation() async {
+    bool serviceEnabled;
+    LocationPermission permission;
+
+    serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) {
+      return;
+    }
+
+    permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+      if (permission == LocationPermission.denied) {
+        return;
+      }
+    }
+
+    if (permission == LocationPermission.deniedForever) {
+      return;
+    }
+
+    try {
+      final position = await Geolocator.getCurrentPosition();
+      setState(() {
+        _currentLocation = LatLng(position.latitude, position.longitude);
+      });
+      _mapController?.animateCamera(
+        CameraUpdate.newLatLng(_currentLocation),
+      );
+    } catch (e) {
+      // Use default location if getting current location fails
+    }
+  }
+
+  void _createMarkers() {
+    for (var location in _emergencyLocations) {
+      _markers.add(
+        Marker(
+          markerId: MarkerId(location.name),
+          position: location.position,
+          infoWindow: InfoWindow(
+            title: location.name,
+            snippet: location.type.toString().split('.').last,
+          ),
+          icon: BitmapDescriptor.defaultMarkerWithHue(
+            _getMarkerHue(location.type),
+          ),
+        ),
+      );
+    }
+  }
+
+  double _getMarkerHue(EmergencyLocationType type) {
+    switch (type) {
+      case EmergencyLocationType.evacuationCenter:
+        return BitmapDescriptor.hueOrange;
+      case EmergencyLocationType.medicalStation:
+      case EmergencyLocationType.hospital:
+        return BitmapDescriptor.hueAzure;
+      case EmergencyLocationType.policeStation:
+        return BitmapDescriptor.hueViolet;
+      case EmergencyLocationType.reliefCenter:
+        return BitmapDescriptor.hueGreen;
+    }
+  }
+
+  void _createFloodZones() {
+    // Define flood zones as circles
+    final floodZones = [
+      const LatLng(14.6000, 120.9870),
+      const LatLng(14.6030, 120.9900),
+      const LatLng(14.5990, 120.9930),
+    ];
+
+    for (int i = 0; i < floodZones.length; i++) {
+      _circles.add(
+        Circle(
+          circleId: CircleId('flood_zone_$i'),
+          center: floodZones[i],
+          radius: 300, // 300 meters
+          fillColor: AppColors.floodZoneRed.withOpacity(0.3),
+          strokeColor: AppColors.floodZoneRed.withOpacity(0.6),
+          strokeWidth: 2,
+        ),
+      );
+    }
+  }
+
   void _recenterMap() {
-    setState(() {
-      _offset = Offset.zero;
-      _scale = 1.0;
-    });
+    if (_mapController != null) {
+      _mapController!.animateCamera(
+        CameraUpdate.newLatLngZoom(_currentLocation, 14),
+      );
+    }
   }
 
   void _onSOSConfirmed() {
@@ -72,14 +174,6 @@ class _MapScreenState extends State<MapScreen> {
     final theme = Theme.of(context);
     final themeProvider = Provider.of<ThemeProvider>(context);
     final isDarkMode = themeProvider.isDarkMode;
-    final size = MediaQuery.of(context).size;
-
-    // Define flood zones
-    final floodZones = [
-      const FloodZone(center: Offset(0.3, 0.4), radius: 120, opacity: 0.6),
-      const FloodZone(center: Offset(0.7, 0.3), radius: 90, opacity: 0.4),
-      const FloodZone(center: Offset(0.5, 0.7), radius: 100, opacity: 0.5),
-    ];
 
     return Scaffold(
       backgroundColor: isDarkMode
@@ -87,102 +181,44 @@ class _MapScreenState extends State<MapScreen> {
           : AppColors.lightBackgroundPrimary,
       body: Stack(
         children: [
-          // Pannable and zoomable map
-          GestureDetector(
-            onScaleStart: (details) {
-              setState(() {
-                // Store initial values
-              });
-            },
-            onScaleUpdate: (details) {
-              setState(() {
-                _scale = (_scale * details.scale).clamp(0.5, 3.0);
-                _offset += details.focalPointDelta;
-              });
-            },
-            child: Transform(
-              transform: Matrix4.identity()
-                ..translate(_offset.dx, _offset.dy)
-                ..scale(_scale),
-              child: Stack(
-                children: [
-                  // Map background (Clean, no grid)
-                  Positioned.fill(
-                    child: Container(
-                      color: isDarkMode
-                          ? AppColors.darkBackgroundDeep
-                          : AppColors.lightBackgroundPrimary,
-                    ),
-                  ),
-
-                  // Flood zone heatmaps
-                  Positioned.fill(
-                    child: CustomPaint(
-                      painter: FloodZonePainter(zones: floodZones),
-                    ),
-                  ),
-
-                  // Emergency location pins
-                  ..._emergencyLocations.map((location) {
-                    return Positioned(
-                      left: size.width * location.position.dx - 20,
-                      top: size.height * location.position.dy - 20,
-                      child: Container(
-                        width: 40,
-                        height: 40,
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          shape: BoxShape.circle,
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withOpacity(0.1),
-                              blurRadius: 8,
-                              offset: const Offset(0, 2),
-                            ),
-                          ],
-                        ),
-                        child: Icon(
-                          location.icon,
-                          color: location.color.withOpacity(0.7),
-                          size: 20,
-                        ),
-                      ),
-                    );
-                  }).toList(),
-
-                  // Location marker (centered)
-                  Positioned(
-                    left: size.width / 2 - 20,
-                    top: size.height / 2 - 20,
-                    child: Container(
-                      width: 40,
-                      height: 40,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: _isSOSActive
-                            ? AppColors.emergencyRed
-                            : Colors.blueAccent,
-                        border: Border.all(
-                          color: AppColors.locationMarkerBorder,
-                          width: 3,
-                        ),
-                        boxShadow: [
-                          BoxShadow(
-                            color:
-                                (_isSOSActive
-                                        ? AppColors.emergencyRed
-                                        : Colors.blueAccent)
-                                    .withOpacity(0.5),
-                            blurRadius: 12,
-                            spreadRadius: 2,
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ],
-              ),
+          // Google Maps
+          GoogleMap(
+            initialCameraPosition: CameraPosition(
+              target: _defaultLocation,
+              zoom: 14,
             ),
+            onMapCreated: (GoogleMapController controller) {
+              _mapController = controller;
+              if (isDarkMode) {
+                controller.setMapStyle('''
+                  [
+                    {
+                      "elementType": "geometry",
+                      "stylers": [{"color": "#242f3e"}]
+                    },
+                    {
+                      "elementType": "labels.text.fill",
+                      "stylers": [{"color": "#746855"}]
+                    },
+                    {
+                      "elementType": "labels.text.stroke",
+                      "stylers": [{"color": "#242f3e"}]
+                    },
+                    {
+                      "featureType": "water",
+                      "elementType": "geometry",
+                      "stylers": [{"color": "#17263c"}]
+                    }
+                  ]
+                ''');
+              }
+            },
+            markers: _markers,
+            circles: _circles,
+            myLocationEnabled: true,
+            myLocationButtonEnabled: false,
+            zoomControlsEnabled: false,
+            mapToolbarEnabled: false,
           ),
 
           // Top status bar
@@ -230,14 +266,14 @@ class _MapScreenState extends State<MapScreen> {
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         Text(
-                          '14.5995° N',
+                          '${_currentLocation.latitude.toStringAsFixed(4)}° N',
                           style: theme.textTheme.labelSmall?.copyWith(
                             fontFamily: 'monospace',
                             fontSize: 10,
                           ),
                         ),
                         Text(
-                          '120.9842° E',
+                          '${_currentLocation.longitude.toStringAsFixed(4)}° E',
                           style: theme.textTheme.labelSmall?.copyWith(
                             fontFamily: 'monospace',
                             fontSize: 10,
@@ -480,10 +516,10 @@ enum EmergencyLocationType {
 // Emergency location model
 class EmergencyLocation {
   final String name;
-  final Offset position;
+  final LatLng position;
   final EmergencyLocationType type;
 
-  EmergencyLocation({
+  const EmergencyLocation({
     required this.name,
     required this.position,
     required this.type,

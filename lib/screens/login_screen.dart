@@ -346,7 +346,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
   Widget _buildDropdownField() {
     return DropdownButtonFormField<String>(
-      value: _selectedGender,
+      initialValue: _selectedGender,
       decoration: InputDecoration(
         hintText: 'Select your gender',
         hintStyle: GoogleFonts.montserrat(

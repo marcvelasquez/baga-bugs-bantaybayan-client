@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../core/theme/colors.dart';
 import '../core/theme/text_styles.dart';
-import '../core/theme/theme.dart';
 import '../widgets/predefined_question_chip.dart';
 
 class ChatScreen extends StatefulWidget {

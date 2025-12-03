@@ -312,7 +312,7 @@ class _ProfileDropdownState extends State<ProfileDropdown> {
                                         onChanged: (value) {
                                           themeProvider.toggleTheme();
                                         },
-                                        activeColor: const Color(0xFFFF6B6B),
+                                        activeThumbColor: const Color(0xFFFF6B6B),
                                         materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                                       ),
                                     ],

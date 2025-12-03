@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import '../core/theme/colors.dart';
 import '../core/theme/text_styles.dart';
-import '../core/theme/theme.dart';
 
 class PredefinedQuestionChip extends StatelessWidget {
   final String question;
