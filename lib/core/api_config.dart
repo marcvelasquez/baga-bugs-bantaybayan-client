@@ -27,6 +27,7 @@ class ApiConfig {
   static const String incidents = '/incidents';
   static const String weather = '/weather';
   static const String handbook = '/handbook';
+  static const String scenario = '/scenario';
   
   // Full URLs
   static String get authUrl => '$baseUrl$auth';
@@ -35,4 +36,5 @@ class ApiConfig {
   static String get incidentsUrl => '$baseUrl$incidents';
   static String get weatherUrl => '$baseUrl$weather';
   static String get handbookUrl => '$baseUrl$handbook';
+  static String get scenarioUrl => '$baseUrl$scenario';
 }

@@ -84,11 +84,10 @@ flutter:
   uses-material-design: true
 
   # To add assets to your application, add an assets section, like this:
-  # assets:
-    # Uncomment when ML model files are ready
-    # - assets/ml_models/flood_probability_model.tflite
-    # - assets/ml_models/flood_depth_model.tflite
-    # - assets/ml_models/scaler_params.json
+  assets:
+    - assets/ml_models/flood_probability_model.tflite
+    - assets/ml_models/flood_depth_model.tflite
+    - assets/ml_models/scaler_params.json
     # Uncomment and add raster data files when ready
     # - assets/rasters/elevation/
     # - assets/rasters/slope/

@@ -7,6 +7,8 @@ import '../core/theme/colors.dart';
 import '../core/theme/theme_provider.dart';
 import '../widgets/sos_confirmation_modal.dart';
 import '../widgets/profile_dropdown.dart';
+import '../services/ml_prediction_service.dart';
+import '../services/scenario_service.dart';
 
 class MapScreen extends StatefulWidget {
   const MapScreen({super.key});
@@ -20,6 +22,11 @@ class _MapScreenState extends State<MapScreen> {
   bool _isSOSActive = false;
   final Set<Marker> _markers = {};
   final Set<Circle> _circles = {};
+  
+  // ML Prediction state
+  FloodPrediction? _currentPrediction;
+  bool _isMLActive = false;
+  bool _isCalculatingRisk = false;
   
   // Default location (Manila, Philippines)
   static const LatLng _defaultLocation = LatLng(14.5995, 120.9842);
@@ -65,6 +72,108 @@ class _MapScreenState extends State<MapScreen> {
     _getCurrentLocation();
     _createMarkers();
     _createFloodZones();
+    _checkMLStatus();
+  }
+
+  Future<void> _checkMLStatus() async {
+    // Check if ML models are initialized (from storm scenario)
+    if (MLPredictionService.isReady) {
+      setState(() => _isMLActive = true);
+      _calculateFloodRisk();
+    } else {
+      // Try to check scenario status
+      final status = await ScenarioService.checkScenarioStatus();
+      if (status.active) {
+        await MLPredictionService.initialize();
+        if (mounted) {
+          setState(() => _isMLActive = true);
+          _calculateFloodRisk();
+        }
+      }
+    }
+  }
+
+  Future<void> _calculateFloodRisk() async {
+    if (!_isMLActive) return;
+
+    setState(() => _isCalculatingRisk = true);
+
+    try {
+      // Get current weather/scenario data to determine rainfall
+      // For now, use storm scenario rainfall (125mm - peak intensity)
+      final prediction = await MLPredictionService.predictForStorm(
+        rainfall: 125.0, // Peak storm rainfall
+        elevation: 100.0, // Can be customized based on location
+        slope: 5.0,
+        flowAccumulation: 1000.0,
+        distanceToWater: 500.0,
+        population: 1000.0,
+      );
+
+      if (prediction != null && mounted) {
+        setState(() {
+          _currentPrediction = prediction;
+          _isCalculatingRisk = false;
+        });
+        _updateFloodZones();
+      }
+    } catch (e) {
+      print('Error calculating flood risk: $e');
+      if (mounted) {
+        setState(() => _isCalculatingRisk = false);
+      }
+    }
+  }
+
+  void _updateFloodZones() {
+    if (_currentPrediction == null) return;
+
+    // Clear existing circles
+    _circles.clear();
+
+    // Create new flood zones based on ML predictions
+    final floodZones = [
+      const LatLng(14.6000, 120.9870),
+      const LatLng(14.6030, 120.9900),
+      const LatLng(14.5990, 120.9930),
+    ];
+
+    Color zoneColor;
+    double radius;
+
+    // Adjust zone color and size based on risk level
+    switch (_currentPrediction!.riskLevel) {
+      case 'CRITICAL':
+        zoneColor = Colors.red;
+        radius = 500.0;
+        break;
+      case 'HIGH':
+        zoneColor = Colors.orange;
+        radius = 400.0;
+        break;
+      case 'MODERATE':
+        zoneColor = Colors.yellow;
+        radius = 300.0;
+        break;
+      default:
+        zoneColor = Colors.blue;
+        radius = 200.0;
+    }
+
+    for (int i = 0; i < floodZones.length; i++) {
+      _circles.add(
+        Circle(
+          circleId: CircleId('flood_zone_$i'),
+          center: floodZones[i],
+          radius: radius,
+          fillColor: zoneColor.withOpacity(0.3),
+          strokeColor: zoneColor.withOpacity(0.6),
+          strokeWidth: 2,
+        ),
+      );
+    }
+
+    setState(() {});
   }
 
   Future<void> _getCurrentLocation() async {
@@ -363,6 +472,82 @@ class _MapScreenState extends State<MapScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
+                  // ML Prediction info (if active)
+                  if (_isMLActive && _currentPrediction != null) ...[
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: _getPredictionColor().withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                          color: _getPredictionColor().withOpacity(0.3),
+                        ),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Icon(
+                                Icons.warning_amber_rounded,
+                                size: 16,
+                                color: _getPredictionColor(),
+                              ),
+                              const SizedBox(width: 4),
+                              Text(
+                                'ML Prediction',
+                                style: theme.textTheme.labelSmall?.copyWith(
+                                  fontWeight: FontWeight.bold,
+                                  color: _getPredictionColor(),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            _currentPrediction!.riskLevelText,
+                            style: theme.textTheme.labelSmall?.copyWith(
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          Text(
+                            'Probability: ${(_currentPrediction!.probability * 100).toStringAsFixed(1)}%',
+                            style: theme.textTheme.labelSmall?.copyWith(
+                              fontSize: 10,
+                            ),
+                          ),
+                          Text(
+                            'Depth: ${_currentPrediction!.depthCm.toStringAsFixed(0)} cm',
+                            style: theme.textTheme.labelSmall?.copyWith(
+                              fontSize: 10,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Divider(height: 1, color: Colors.grey.withOpacity(0.3)),
+                    const SizedBox(height: 12),
+                  ],
+                  if (_isCalculatingRisk) ...[
+                    Row(
+                      children: [
+                        SizedBox(
+                          width: 12,
+                          height: 12,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Calculating risk...',
+                          style: theme.textTheme.labelSmall,
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Divider(height: 1, color: Colors.grey.withOpacity(0.3)),
+                    const SizedBox(height: 12),
+                  ],
                   _buildLegendItem(
                     color: AppColors.floodZoneRed,
                     label: 'Flood',
@@ -502,6 +687,20 @@ class _MapScreenState extends State<MapScreen> {
         ),
       ],
     );
+  }
+
+  Color _getPredictionColor() {
+    if (_currentPrediction == null) return Colors.grey;
+    switch (_currentPrediction!.riskLevel) {
+      case 'CRITICAL':
+        return Colors.red;
+      case 'HIGH':
+        return Colors.orange;
+      case 'MODERATE':
+        return Colors.yellow.shade700;
+      default:
+        return Colors.green;
+    }
   }
 }
 

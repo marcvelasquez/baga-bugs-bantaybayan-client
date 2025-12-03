@@ -6,6 +6,12 @@ from datetime import datetime
 
 router = APIRouter()
 
+# Import scenario module to check if storm scenario is active
+try:
+    from app.api import scenario
+except ImportError:
+    scenario = None
+
 
 class WeatherResponse(BaseModel):
     latitude: float
@@ -63,7 +69,14 @@ async def get_current_weather(latitude: float, longitude: float):
     
     - **latitude**: Latitude of the location
     - **longitude**: Longitude of the location
+    
+    Note: If storm scenario is active, returns simulated typhoon data instead.
     """
+    # Check if scenario mode is active
+    if scenario and hasattr(scenario, 'is_scenario_active') and scenario.is_scenario_active():
+        scenario_data = scenario.get_scenario_weather_data(latitude, longitude)
+        return WeatherResponse(**scenario_data)
+    
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             # Open-Meteo API endpoint

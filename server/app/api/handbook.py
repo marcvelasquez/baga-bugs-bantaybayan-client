@@ -11,6 +11,12 @@ router = APIRouter()
 # Configure Gemini
 genai.configure(api_key=settings.GEMINI_API_KEY)
 
+# Import scenario module to check if storm scenario is active
+try:
+    from app.api import scenario
+except ImportError:
+    scenario = None
+
 
 class SafetyTip(BaseModel):
     title: str
@@ -38,12 +44,48 @@ async def generate_handbook(request: HandbookRequest):
     """
     Generate contextual safety handbook based on current weather conditions
     using Gemini AI
+    
+    Note: If storm scenario is active, generates typhoon-specific emergency tips.
     """
     if not settings.GEMINI_API_KEY:
         raise HTTPException(
             status_code=500,
             detail="Gemini API key not configured"
         )
+    
+    # Check if scenario is active and adjust prompt accordingly
+    is_emergency = False
+    is_post_storm = False
+    emergency_context = ""
+    
+    if scenario and hasattr(scenario, 'is_scenario_active'):
+        if scenario.is_scenario_active():
+            is_emergency = True
+            emergency_context = """
+        
+🚨 EMERGENCY ALERT: A severe tropical storm (Typhoon Rosing) is currently approaching and expected to make landfall in 6 hours.
+Expected conditions:
+- Peak rainfall: 125mm/hour
+- Wind speeds: 110 km/h with gusts up to 145 km/h
+- Severe flood risk across low-lying areas
+- Multiple municipalities under evacuation orders
+
+This is an ACTIVE EMERGENCY SITUATION. Focus on IMMEDIATE life-saving actions.
+        """
+        elif hasattr(scenario, '_scenario_active') and not scenario._scenario_active and request.rain < 5:
+            # Storm recently deactivated
+            is_post_storm = True
+            emergency_context = """
+
+✅ POST-STORM UPDATE: Typhoon Rosing has passed the area. Weather conditions are improving.
+Current situation:
+- Rain has stopped or significantly reduced
+- Winds are calming
+- Some areas may still have standing water
+- Flood waters are receding
+
+Focus on POST-DISASTER recovery and safety.
+        """
     
     try:
         # Create the prompt for Gemini
@@ -55,10 +97,11 @@ Current Weather:
 - Precipitation: {request.precipitation}mm
 - Rain: {request.rain}mm
 - Location: {request.latitude}, {request.longitude}
+{emergency_context}
 
 Please provide:
-1. A brief weather summary (2-3 sentences)
-2. 5-7 specific safety tips based on these conditions
+1. A brief weather summary (2-3 sentences){" - EMPHASIZE EMERGENCY SEVERITY" if is_emergency else (" - EMPHASIZE STORM HAS PASSED" if is_post_storm else "")}
+2. {"8-10 CRITICAL EMERGENCY ACTIONS" if is_emergency else ("6-8 POST-STORM RECOVERY ACTIONS" if is_post_storm else "5-7 specific safety tips")} based on these conditions
 3. Flood risk assessment (low/moderate/high/severe)
 
 Format your response as JSON with this structure:
@@ -75,16 +118,17 @@ Format your response as JSON with this structure:
 }}
 
 Focus on:
-- Flood preparedness and prevention
-- Immediate actions to take
-- What to avoid
-- Emergency contacts and resources
+{"- IMMEDIATE EVACUATION procedures" if is_emergency else ("- Damage assessment procedures" if is_post_storm else "- Flood preparedness and prevention")}
+{"- Life-threatening hazards to avoid" if is_emergency else ("- Post-flood health and safety hazards" if is_post_storm else "- Immediate actions to take")}
+{"- Emergency shelter locations" if is_emergency else ("- When it's safe to return home" if is_post_storm else "- What to avoid")}
+{"- Critical supplies needed NOW" if is_emergency else ("- Recovery resources and assistance" if is_post_storm else "- Emergency contacts and resources")}
 - Specific concerns for the Philippines (monsoon, typhoons, etc.)
 
-Make it practical, actionable, and relevant to the current weather conditions."""
+Make it {"URGENT, DIRECTIVE, and potentially life-saving" if is_emergency else ("REASSURING but cautious, focused on safe recovery" if is_post_storm else "practical, actionable, and relevant to the current weather conditions")}."""
 
         # Generate content using Gemini
         model = genai.GenerativeModel('gemini-flash-latest')
+        response = model.generate_content(prompt)
         response = model.generate_content(prompt)
         
         # Parse the response
