@@ -109,27 +109,27 @@ class _SituationScreenState extends State<SituationScreen> {
                       Text(
                         'Situation Reports',
                         style: GoogleFonts.montserrat(
-                          fontSize: 24,
+                          fontSize: 20,
                           fontWeight: FontWeight.w700,
                           color: Colors.black87,
                         ),
                       ),
-                      const SizedBox(height: 4),
+                      const SizedBox(height: 2),
                       Text(
                         'Crowd-sourced incident data',
                         style: GoogleFonts.montserrat(
-                          fontSize: 15,
+                          fontSize: 13,
                           color: Colors.grey[600],
                         ),
                       ),
-                      const SizedBox(height: 16),
+                      const SizedBox(height: 12),
                       // Active Reports card
                       ClipRRect(
                         borderRadius: BorderRadius.circular(16),
                         child: BackdropFilter(
                           filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
                           child: Container(
-                            padding: const EdgeInsets.all(12),
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                             decoration: BoxDecoration(
                               color: Colors.white.withOpacity(0.95),
                               borderRadius: BorderRadius.circular(16),
@@ -144,68 +144,70 @@ class _SituationScreenState extends State<SituationScreen> {
                                 ),
                               ],
                             ),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Row(
-                                  children: [
-                                    const Icon(
-                                      Icons.warning_amber_rounded,
-                                      color: Colors.orange,
-                                      size: 18,
-                                    ),
-                                    const SizedBox(width: 6),
-                                    Text(
-                                      'Active Reports',
-                                      style: GoogleFonts.montserrat(
-                                        fontSize: 14,
-                                        fontWeight: FontWeight.w600,
-                                        color: Colors.black87,
-                                      ),
-                                    ),
-                                    const Spacer(),
-                                    Text(
-                                      _getCurrentDate(),
-                                      style: GoogleFonts.montserrat(
-                                        fontSize: 11,
-                                        fontWeight: FontWeight.w500,
-                                        color: Colors.grey[600],
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 10),
-                                Row(
-                                  children: [
-                                    const Expanded(
-                                      flex: 1,
-                                      child: _StatBox(
-                                        label: 'Info',
-                                        count: 5,
-                                        color: Colors.blue,
-                                      ),
-                                    ),
-                                    const SizedBox(width: 12),
-                                    const Expanded(
-                                      flex: 1,
-                                      child: _StatBox(
-                                        label: 'Critical',
-                                        count: 25,
-                                        color: Color(0xFFFF6B6B),
-                                      ),
-                                    ),
-                                    const SizedBox(width: 12),
-                                    const Expanded(
-                                      flex: 1,
-                                      child: _StatBox(
-                                        label: 'Warning',
-                                        count: 8,
+                            child: IntrinsicHeight(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: [
+                                      const Icon(
+                                        Icons.warning_amber_rounded,
                                         color: Colors.orange,
+                                        size: 16,
                                       ),
-                                    ),
-                                  ],
-                                ),
-                              ],
+                                      const SizedBox(width: 5),
+                                      Text(
+                                        'Active Reports',
+                                        style: GoogleFonts.montserrat(
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.w600,
+                                          color: Colors.black87,
+                                        ),
+                                      ),
+                                      const Spacer(),
+                                      Text(
+                                        _getCurrentDate(),
+                                        style: GoogleFonts.montserrat(
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.w500,
+                                          color: Colors.grey[600],
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        flex: 1,
+                                        child: _StatBox(
+                                          label: 'Info',
+                                          count: 5,
+                                          color: Colors.blue,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Expanded(
+                                        flex: 1,
+                                        child: _StatBox(
+                                          label: 'Critical',
+                                          count: 25,
+                                          color: Color(0xFFFF6B6B),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Expanded(
+                                        flex: 1,
+                                        child: _StatBox(
+                                          label: 'Warning',
+                                          count: 8,
+                                          color: Colors.orange,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ),
                             ),
                           ),
                         ),
@@ -218,7 +220,7 @@ class _SituationScreenState extends State<SituationScreen> {
 
                 // Report button at bottom
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 20),
                   child: _ReportButton(),
                 ),
               ],
@@ -376,8 +378,7 @@ class _StatBox extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: 65,
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
       decoration: BoxDecoration(
         color: color.withOpacity(0.1),
         borderRadius: BorderRadius.circular(10),
@@ -385,13 +386,15 @@ class _StatBox extends StatelessWidget {
       ),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
+        mainAxisSize: MainAxisSize.min,
         children: [
           Text(
             count.toString(),
             style: GoogleFonts.montserrat(
-              fontSize: 20,
+              fontSize: 18,
               color: color,
               fontWeight: FontWeight.bold,
+              height: 1.2,
             ),
           ),
           const SizedBox(height: 2),
@@ -401,6 +404,7 @@ class _StatBox extends StatelessWidget {
               fontSize: 9,
               color: color,
               fontWeight: FontWeight.w500,
+              height: 1.2,
             ),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
@@ -501,10 +505,11 @@ class _ReportIncidentModalState extends State<_ReportIncidentModal> {
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
       child: Container(
         padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
             Row(
               children: [
                 Container(
@@ -638,14 +643,14 @@ class _ReportIncidentModalState extends State<_ReportIncidentModal> {
                 contentPadding: const EdgeInsets.all(12),
               ),
             ),
-            const SizedBox(height: 24),
+            const SizedBox(height: 16),
             Row(
               children: [
                 Expanded(
                   child: OutlinedButton(
                     onPressed: () => Navigator.pop(context),
                     style: OutlinedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      padding: const EdgeInsets.symmetric(vertical: 12),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(12),
                       ),
@@ -654,7 +659,7 @@ class _ReportIncidentModalState extends State<_ReportIncidentModal> {
                     child: Text(
                       'Cancel',
                       style: GoogleFonts.montserrat(
-                        fontSize: 14,
+                        fontSize: 13,
                         fontWeight: FontWeight.w600,
                         color: Colors.grey[700],
                       ),
@@ -681,7 +686,7 @@ class _ReportIncidentModalState extends State<_ReportIncidentModal> {
                           },
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.black87,
-                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      padding: const EdgeInsets.symmetric(vertical: 12),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(12),
                       ),
@@ -690,7 +695,7 @@ class _ReportIncidentModalState extends State<_ReportIncidentModal> {
                     child: Text(
                       'Submit',
                       style: GoogleFonts.montserrat(
-                        fontSize: 14,
+                        fontSize: 13,
                         fontWeight: FontWeight.w600,
                         color: Colors.white,
                       ),
@@ -700,6 +705,7 @@ class _ReportIncidentModalState extends State<_ReportIncidentModal> {
               ],
             ),
           ],
+        ),
         ),
       ),
     );
