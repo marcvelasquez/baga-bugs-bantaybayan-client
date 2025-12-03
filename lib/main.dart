@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'core/theme/theme.dart';
 import 'core/theme/theme_provider.dart';
 import 'screens/home_page.dart';
+import 'screens/login_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -51,7 +53,11 @@ class BantayBayanApp extends StatelessWidget {
       theme: AppTheme.lightTheme,
       darkTheme: AppTheme.darkTheme,
       themeMode: themeProvider.themeMode,
-      home: const HomePage(),
+      home: const LoginScreen(), // Start on dashboard for now
+      routes: {
+        '/home': (context) => const HomePage(),
+        '/login': (context) => const LoginScreen(),
+      },
     );
   }
 }

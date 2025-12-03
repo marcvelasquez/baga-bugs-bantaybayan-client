@@ -5,6 +5,7 @@ import '../core/theme/colors.dart';
 import '../core/theme/theme_provider.dart';
 import '../widgets/flood_zone_painter.dart';
 import '../widgets/sos_confirmation_modal.dart';
+import '../widgets/profile_dropdown.dart';
 
 class MapScreen extends StatefulWidget {
   const MapScreen({super.key});
@@ -245,16 +246,8 @@ class _MapScreenState extends State<MapScreen> {
                       ],
                     ),
                     const Spacer(),
-                    // Theme toggle button
-                    IconButton(
-                      onPressed: () => themeProvider.toggleTheme(),
-                      icon: Icon(
-                        isDarkMode ? Icons.light_mode : Icons.dark_mode,
-                        size: 20,
-                      ),
-                      padding: EdgeInsets.zero,
-                      constraints: const BoxConstraints(),
-                    ),
+                    // Profile dropdown
+                    const ProfileDropdown(),
                   ],
                 ),
               ),
