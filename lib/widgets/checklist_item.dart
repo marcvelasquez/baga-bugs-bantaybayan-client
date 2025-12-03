@@ -1,58 +1,101 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:google_fonts/google_fonts.dart';
+import '../core/theme/colors.dart';
 
-/// Checklist item widget with checkbox toggle
+/// Checklist item widget with checkbox toggle and swipe-to-delete
 class ChecklistItem extends StatelessWidget {
   final String title;
   final bool isChecked;
   final VoidCallback onTap;
+  final VoidCallback? onDelete;
   final bool isDarkMode;
+  final String? uniqueKey;
 
   const ChecklistItem({
     super.key,
     required this.title,
     required this.isChecked,
     required this.onTap,
+    this.onDelete,
     required this.isDarkMode,
+    this.uniqueKey,
   });
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return InkWell(
+    final content = InkWell(
       onTap: () {
         HapticFeedback.lightImpact();
         onTap();
       },
-      child: Padding(
+      child: Container(
         padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+        decoration: BoxDecoration(
+          border: Border(
+            bottom: BorderSide(
+              color: Colors.grey[200]!,
+              width: 0.5,
+            ),
+          ),
+        ),
         child: Row(
           children: [
             // Checkbox icon
             Icon(
               isChecked ? Icons.check_circle : Icons.circle_outlined,
               color: isChecked
-                  ? theme.colorScheme.secondary
-                  : theme.iconTheme.color?.withOpacity(0.5),
-              size: 24,
+                  ? AppColors.success
+                  : Colors.grey[400],
+              size: 22,
             ),
             const SizedBox(width: 12),
             // Title
             Expanded(
               child: Text(
                 title,
-                style: theme.textTheme.bodyMedium?.copyWith(
+                style: GoogleFonts.montserrat(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w500,
                   decoration: isChecked ? TextDecoration.lineThrough : null,
+                  decorationColor: Colors.grey[400],
                   color: isChecked
-                      ? theme.textTheme.bodyMedium?.color?.withOpacity(0.5)
-                      : null,
+                      ? Colors.grey[500]
+                      : Colors.black87,
+                  height: 1.4,
                 ),
               ),
             ),
           ],
         ),
       ),
+    );
+
+    if (onDelete == null) {
+      return content;
+    }
+
+    return Dismissible(
+      key: Key(uniqueKey ?? title),
+      direction: DismissDirection.endToStart,
+      background: Container(
+        alignment: Alignment.centerRight,
+        padding: const EdgeInsets.only(right: 20),
+        color: AppColors.error,
+        child: const Icon(
+          Icons.delete_outline,
+          color: Colors.white,
+          size: 24,
+        ),
+      ),
+      confirmDismiss: (direction) async {
+        HapticFeedback.mediumImpact();
+        return true;
+      },
+      onDismissed: (direction) {
+        onDelete!();
+      },
+      child: content,
     );
   }
 }

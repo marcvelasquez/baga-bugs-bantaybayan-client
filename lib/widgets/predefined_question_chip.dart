@@ -15,37 +15,50 @@ class PredefinedQuestionChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
+    return InkWell(
       onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
       child: Container(
-        margin: const EdgeInsets.only(bottom: 12),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        margin: const EdgeInsets.only(bottom: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
         decoration: BoxDecoration(
-          color: AppColors.surfaceWhite,
+          color: Colors.white,
           borderRadius: BorderRadius.circular(12),
-          boxShadow: AppTheme.lightShadow,
+          border: Border.all(
+            color: Colors.black.withOpacity(0.08),
+            width: 1,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.04),
+              blurRadius: 4,
+              offset: const Offset(0, 1),
+            ),
+          ],
         ),
         child: Row(
           children: [
-            const Icon(
+            Icon(
               Icons.help_outline,
               color: AppColors.emergencyRed,
-              size: 20,
+              size: 18,
             ),
-            const SizedBox(width: 12),
+            const SizedBox(width: 10),
             Expanded(
               child: Text(
                 question,
                 style: AppTextStyles.bodyMedium.copyWith(
-                  color: AppColors.textOnLight,
+                  fontSize: 14,
+                  color: Colors.black87,
                   fontWeight: FontWeight.w500,
+                  height: 1.4,
                 ),
               ),
             ),
-            const Icon(
+            Icon(
               Icons.arrow_forward_ios,
-              color: AppColors.slateGrey,
-              size: 16,
+              color: Colors.grey[600],
+              size: 14,
             ),
           ],
         ),

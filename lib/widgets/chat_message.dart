@@ -31,9 +31,9 @@ class ChatMessageWidget extends StatelessWidget {
       alignment: isBot ? Alignment.centerLeft : Alignment.centerRight,
       child: Container(
         margin: EdgeInsets.only(
-          left: isBot ? 0 : 48,
-          right: isBot ? 48 : 0,
-          bottom: 12,
+          left: isBot ? 0 : 40,
+          right: isBot ? 40 : 0,
+          bottom: 10,
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
@@ -42,50 +42,57 @@ class ChatMessageWidget extends StatelessWidget {
             // Bot icon (only for bot messages)
             if (isBot) ...[
               Container(
-                width: 32,
-                height: 32,
+                width: 28,
+                height: 28,
                 decoration: BoxDecoration(
-                  color: theme.colorScheme.secondary,
+                  color: const Color(0xFFFF6B6B),
                   shape: BoxShape.circle,
                 ),
                 child: Icon(
                   Icons.smart_toy,
-                  size: 20,
-                  color: isDarkMode
-                      ? AppColors.darkBackgroundDeep
-                      : AppColors.lightTextPrimary,
+                  size: 18,
+                  color: Colors.white,
                 ),
               ),
-              const SizedBox(width: 8),
+              const SizedBox(width: 6),
             ],
             // Message bubble
             Flexible(
               child: Container(
                 padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 12,
+                  horizontal: 12,
+                  vertical: 10,
                 ),
                 decoration: BoxDecoration(
                   color: isBot
                       ? (isDarkMode
                             ? AppColors.darkBackgroundElevated
-                            : AppColors.lightBackgroundTertiary)
-                      : theme.colorScheme.secondary,
+                            : Colors.grey[100])
+                      : const Color(0xFFFF6B6B),
                   borderRadius: BorderRadius.only(
-                    topLeft: Radius.circular(isBot ? 4 : 16),
-                    topRight: Radius.circular(isBot ? 16 : 4),
-                    bottomLeft: const Radius.circular(16),
-                    bottomRight: const Radius.circular(16),
+                    topLeft: Radius.circular(isBot ? 4 : 14),
+                    topRight: Radius.circular(isBot ? 14 : 4),
+                    bottomLeft: const Radius.circular(14),
+                    bottomRight: const Radius.circular(14),
                   ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.white.withOpacity(0.04),
+                      blurRadius: 4,
+                      offset: const Offset(0, 1),
+                    ),
+                  ],
                 ),
                 child: Text(
                   message.text,
                   style: theme.textTheme.bodyMedium?.copyWith(
+                    fontSize: 14,
+                    height: 1.4,
                     color: isBot
-                        ? theme.textTheme.bodyMedium?.color
+                        ? Colors.black87
                         : (isDarkMode
                               ? AppColors.darkBackgroundDeep
-                              : AppColors.lightTextPrimary),
+                              : Colors.white),
                   ),
                 ),
               ),

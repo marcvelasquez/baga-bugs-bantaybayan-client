@@ -119,13 +119,13 @@ class _ChatScreenState extends State<ChatScreen> {
             Container(
               padding: const EdgeInsets.all(8),
               decoration: BoxDecoration(
-                color: AppColors.emergencyRed.withOpacity(0.1),
+                color: const Color(0xFFFF6B6B),
                 borderRadius: BorderRadius.circular(8),
               ),
               child: const Icon(
                 Icons.support_agent,
-                color: AppColors.emergencyRed,
-                size: 24,
+                color: Colors.white,
+                size: 22,
               ),
             ),
             const SizedBox(width: 12),
@@ -133,18 +133,18 @@ class _ChatScreenState extends State<ChatScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Emergency Assistant',
+                  'BantAI Bayan',
                   style: GoogleFonts.montserrat(
-                    fontSize: 16,
+                    fontSize: 14,
                     fontWeight: FontWeight.w600,
-                    color: Colors.black87,
+                    color: const Color(0xFFFF6B6B),
                   ),
                 ),
                 Text(
-                  'Always available',
+                  'Laging Umaalalay',
                   style: GoogleFonts.montserrat(
-                    fontSize: 12,
-                    color: AppColors.success,
+                    fontSize: 11,
+                    color: const Color(0xFFFF6B6B),
                   ),
                 ),
               ],
@@ -206,24 +206,24 @@ class _ChatScreenState extends State<ChatScreen> {
                     child: TextField(
                       controller: _messageController,
                       style: GoogleFonts.montserrat(
-                        fontSize: 15,
+                        fontSize: 14,
                         color: Colors.black87,
                       ),
                       decoration: InputDecoration(
                         hintText: 'Type your question...',
                         hintStyle: GoogleFonts.montserrat(
-                          fontSize: 15,
+                          fontSize: 14,
                           color: Colors.grey[500],
                         ),
                         filled: true,
                         fillColor: Colors.grey[50],
                         border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(24),
+                          borderRadius: BorderRadius.circular(20),
                           borderSide: BorderSide.none,
                         ),
                         contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 20,
-                          vertical: 12,
+                          horizontal: 16,
+                          vertical: 10,
                         ),
                       ),
                       onSubmitted: _sendMessage,
@@ -232,14 +232,20 @@ class _ChatScreenState extends State<ChatScreen> {
                   const SizedBox(width: 12),
                   Container(
                     decoration: BoxDecoration(
-                      color: AppColors.emergencyRed,
+                      color: const Color(0xFFFF6B6B).withOpacity(0.15),
                       shape: BoxShape.circle,
-                      boxShadow: AppTheme.lightShadow,
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.08),
+                          blurRadius: 8,
+                          offset: const Offset(0, 2),
+                        ),
+                      ],
                     ),
                     child: IconButton(
                       icon: const Icon(
                         Icons.send,
-                        color: AppColors.surfaceWhite,
+                        color: Color(0xFFFF6B6B),
                       ),
                       onPressed: () => _sendMessage(_messageController.text),
                     ),
@@ -257,41 +263,50 @@ class _ChatScreenState extends State<ChatScreen> {
     return Align(
       alignment: message.isUser ? Alignment.centerRight : Alignment.centerLeft,
       child: Container(
-        margin: const EdgeInsets.only(bottom: 12),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        margin: const EdgeInsets.only(bottom: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         constraints: BoxConstraints(
           maxWidth: MediaQuery.of(context).size.width * 0.75,
         ),
         decoration: BoxDecoration(
           color: message.isUser
-              ? AppColors.emergencyRed
-              : AppColors.surfaceWhite,
+              ? Colors.white
+              : Colors.grey[100],
           borderRadius: BorderRadius.only(
-            topLeft: const Radius.circular(16),
-            topRight: const Radius.circular(16),
-            bottomLeft: Radius.circular(message.isUser ? 16 : 4),
-            bottomRight: Radius.circular(message.isUser ? 4 : 16),
+            topLeft: const Radius.circular(14),
+            topRight: const Radius.circular(14),
+            bottomLeft: Radius.circular(message.isUser ? 14 : 4),
+            bottomRight: Radius.circular(message.isUser ? 4 : 14),
           ),
-          boxShadow: AppTheme.lightShadow,
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.04),
+              blurRadius: 4,
+              offset: const Offset(0, 1),
+            ),
+          ],
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
               message.text,
-              style: AppTextStyles.bodyMedium.copyWith(
+              style: GoogleFonts.montserrat(
+                fontSize: 14,
+                height: 1.4,
                 color: message.isUser
-                    ? AppColors.surfaceWhite
-                    : AppColors.textOnLight,
+                    ? Colors.white
+                    : Colors.black87,
               ),
             ),
             const SizedBox(height: 4),
             Text(
               _formatTime(message.timestamp),
-              style: AppTextStyles.labelSmall.copyWith(
+              style: GoogleFonts.montserrat(
+                fontSize: 11,
                 color: message.isUser
-                    ? AppColors.surfaceWhite.withOpacity(0.7)
-                    : AppColors.slateGrey,
+                    ? Colors.white.withOpacity(0.7)
+                    : Colors.grey[600],
               ),
             ),
           ],
