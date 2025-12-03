@@ -217,7 +217,6 @@ class _SituationScreenState extends State<SituationScreen> {
                 ),
 
                 const Spacer(),
-
                 // Report button at bottom
                 Padding(
                   padding: const EdgeInsets.fromLTRB(16, 0, 16, 20),
