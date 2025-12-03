@@ -105,10 +105,12 @@ class _ChatScreenState extends State<ChatScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final isDarkMode = Theme.of(context).brightness == Brightness.dark;
+    
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: isDarkMode ? AppColors.darkBackgroundDeep : AppColors.lightBackgroundPrimary,
       appBar: AppBar(
-        backgroundColor: Colors.white,
+        backgroundColor: isDarkMode ? AppColors.darkBackgroundDeep : AppColors.lightBackgroundPrimary,
         elevation: 0,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
@@ -207,16 +209,16 @@ class _ChatScreenState extends State<ChatScreen> {
                       controller: _messageController,
                       style: GoogleFonts.montserrat(
                         fontSize: 14,
-                        color: Colors.black87,
+                        color: isDarkMode ? AppColors.darkTextPrimary : AppColors.lightTextPrimary,
                       ),
                       decoration: InputDecoration(
                         hintText: 'Type your question...',
                         hintStyle: GoogleFonts.montserrat(
                           fontSize: 14,
-                          color: Colors.grey[500],
+                          color: isDarkMode ? AppColors.darkTextSecondary : AppColors.lightTextSecondary,
                         ),
                         filled: true,
-                        fillColor: Colors.grey[50],
+                        fillColor: isDarkMode ? AppColors.darkBackgroundElevated : AppColors.lightBackgroundSecondary,
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(20),
                           borderSide: BorderSide.none,

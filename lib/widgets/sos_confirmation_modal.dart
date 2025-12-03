@@ -25,12 +25,12 @@ class SOSConfirmationModal extends StatelessWidget {
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
       child: Container(
         decoration: BoxDecoration(
-          color: isDarkMode ? Colors.black : Colors.white,
+          color: isDarkMode ? AppColors.darkBackgroundElevated : AppColors.lightBackgroundSecondary,
           borderRadius: BorderRadius.circular(20),
           border: Border.all(
             color: isDarkMode
-                ? Colors.white.withOpacity(0.1)
-                : Colors.black.withOpacity(0.05),
+                ? AppColors.shadowLight
+                : AppColors.shadowMedium,
           ),
           boxShadow: [
             BoxShadow(

@@ -123,11 +123,12 @@ class _HandbookScreenState extends State<HandbookScreen> {
     if (_selectedTabIndex == 0) return; // Can't add to "All"
     
     final category = _checklistCategories.keys.elementAt(_selectedTabIndex - 1);
+    final isDarkMode = Theme.of(context).brightness == Brightness.dark;
     
     showDialog(
       context: context,
       builder: (context) => Dialog(
-        backgroundColor: Colors.white,
+        backgroundColor: isDarkMode ? AppColors.darkBackgroundElevated : AppColors.lightBackgroundSecondary,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         child: Container(
           padding: const EdgeInsets.all(20),
@@ -138,9 +139,9 @@ class _HandbookScreenState extends State<HandbookScreen> {
               Text(
                 'Add Item to $category',
                 style: GoogleFonts.montserrat(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w700,
-                  color: Colors.black87,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w600,
+                  color: isDarkMode ? AppColors.darkTextPrimary : AppColors.lightTextPrimary,
                 ),
               ),
               const SizedBox(height: 16),
@@ -149,16 +150,16 @@ class _HandbookScreenState extends State<HandbookScreen> {
                 autofocus: true,
                 style: GoogleFonts.montserrat(
                   fontSize: 14,
-                  color: Colors.black87,
+                  color: isDarkMode ? AppColors.darkTextPrimary : Colors.black87,
                 ),
                 decoration: InputDecoration(
                   hintText: 'Enter item name...',
                   hintStyle: GoogleFonts.montserrat(
                     fontSize: 14,
-                    color: Colors.grey[500],
+                    color: isDarkMode ? AppColors.darkTextSecondary : Colors.grey[500],
                   ),
                   filled: true,
-                  fillColor: Colors.grey[50],
+                  fillColor: isDarkMode ? AppColors.darkBackgroundDeep : Colors.grey[50],
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
                     borderSide: BorderSide.none,
@@ -189,14 +190,14 @@ class _HandbookScreenState extends State<HandbookScreen> {
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(12),
                         ),
-                        side: BorderSide(color: Colors.grey[300]!),
+                        side: BorderSide(color: isDarkMode ? AppColors.darkBorder : Colors.grey[300]!),
                       ),
                       child: Text(
                         'Cancel',
                         style: GoogleFonts.montserrat(
                           fontSize: 13,
                           fontWeight: FontWeight.w600,
-                          color: Colors.grey[700],
+                          color: isDarkMode ? AppColors.darkTextSecondary : Colors.grey[700],
                         ),
                       ),
                     ),
@@ -214,7 +215,7 @@ class _HandbookScreenState extends State<HandbookScreen> {
                         }
                       },
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.black87,
+                        backgroundColor: const Color(0xFFFF6B6B),
                         padding: const EdgeInsets.symmetric(vertical: 12),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(12),
@@ -298,7 +299,9 @@ class _HandbookScreenState extends State<HandbookScreen> {
     final isDarkMode = themeProvider.isDarkMode;
 
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: isDarkMode
+          ? AppColors.darkBackgroundDeep
+          : AppColors.lightBackgroundPrimary,
       body: Stack(
         children: [
           // Main content
@@ -320,7 +323,7 @@ class _HandbookScreenState extends State<HandbookScreen> {
                               style: GoogleFonts.montserrat(
                                 fontSize: 20,
                                 fontWeight: FontWeight.w700,
-                                color: Colors.black87,
+                                color: isDarkMode ? AppColors.darkTextPrimary : Colors.black87,
                               ),
                             ),
                           ),
@@ -376,7 +379,9 @@ class _HandbookScreenState extends State<HandbookScreen> {
                             child: Container(
                               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                               decoration: BoxDecoration(
-                                color: isSelected ? Colors.black87 : Colors.grey[100],
+                                color: isSelected 
+                                    ? (isDarkMode ? const Color(0xFFFF6B6B) : Colors.black87)
+                                    : (isDarkMode ? AppColors.darkBackgroundElevated : Colors.grey[100]),
                                 borderRadius: BorderRadius.circular(20),
                               ),
                               child: Row(
@@ -385,7 +390,7 @@ class _HandbookScreenState extends State<HandbookScreen> {
                                   Icon(
                                     Icons.grid_view_rounded,
                                     size: 16,
-                                    color: isSelected ? Colors.white : Colors.grey[700],
+                                    color: isSelected ? Colors.white : (isDarkMode ? AppColors.darkTextSecondary : Colors.grey[700]),
                                   ),
                                   const SizedBox(width: 6),
                                   Text(
@@ -393,7 +398,7 @@ class _HandbookScreenState extends State<HandbookScreen> {
                                     style: GoogleFonts.montserrat(
                                       fontSize: 13,
                                       fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
-                                      color: isSelected ? Colors.white : Colors.grey[700],
+                                      color: isSelected ? Colors.white : (isDarkMode ? AppColors.darkTextSecondary : Colors.grey[700]),
                                     ),
                                   ),
                                 ],
@@ -417,8 +422,8 @@ class _HandbookScreenState extends State<HandbookScreen> {
                             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                             decoration: BoxDecoration(
                               color: isSelected
-                                  ? (isComplete ? AppColors.success : Colors.black87)
-                                  : (isComplete ? AppColors.success.withOpacity(0.1) : Colors.grey[100]),
+                                  ? (isComplete ? AppColors.success : (isDarkMode ? const Color(0xFFFF6B6B) : Colors.black87))
+                                  : (isComplete ? AppColors.success.withOpacity(0.1) : (isDarkMode ? AppColors.darkBackgroundElevated : Colors.grey[100])),
                               borderRadius: BorderRadius.circular(20),
                               border: Border.all(
                                 color: isComplete && !isSelected 
@@ -441,13 +446,13 @@ class _HandbookScreenState extends State<HandbookScreen> {
                                   ),
                                 Text(
                                   category,
-                                  style: GoogleFonts.montserrat(
-                                    fontSize: 13,
-                                    fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
-                                    color: isSelected
-                                        ? Colors.white
-                                        : (isComplete ? AppColors.success : Colors.grey[700]),
-                                  ),
+                                    style: GoogleFonts.montserrat(
+                                      fontSize: 13,
+                                      fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
+                                      color: isSelected
+                                          ? Colors.white
+                                          : (isComplete ? AppColors.success : (isDarkMode ? AppColors.darkTextSecondary : Colors.grey[700])),
+                                    ),
                                 ),
                               ],
                             ),
@@ -471,7 +476,7 @@ class _HandbookScreenState extends State<HandbookScreen> {
                         style: GoogleFonts.montserrat(
                           fontSize: 16,
                           fontWeight: FontWeight.w600,
-                          color: Colors.black87,
+                          color: isDarkMode ? AppColors.darkTextPrimary : Colors.black87,
                         ),
                       ),
                       const Spacer(),
@@ -479,7 +484,7 @@ class _HandbookScreenState extends State<HandbookScreen> {
                         IconButton(
                           onPressed: _showAddItemDialog,
                           icon: const Icon(Icons.add_circle_outline),
-                          color: Colors.black87,
+                          color: isDarkMode ? AppColors.darkTextPrimary : Colors.black87,
                           iconSize: 22,
                           padding: EdgeInsets.zero,
                           constraints: const BoxConstraints(),
@@ -494,7 +499,7 @@ class _HandbookScreenState extends State<HandbookScreen> {
                           fontWeight: FontWeight.w600,
                           color: _selectedTabIndex > 0 && _isCategoryComplete(_checklistCategories.keys.elementAt(_selectedTabIndex - 1))
                               ? AppColors.success
-                              : Colors.grey[600],
+                              : (isDarkMode ? AppColors.darkTextSecondary : Colors.grey[600]),
                         ),
                       ),
                     ],
@@ -577,10 +582,14 @@ class _HandbookScreenState extends State<HandbookScreen> {
                             maxHeight: MediaQuery.of(context).size.height * 0.7,
                           ),
                           decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.95),
+                            color: isDarkMode 
+                                ? AppColors.darkBackgroundElevated.withOpacity(0.95)
+                                : Colors.white.withOpacity(0.95),
                             borderRadius: BorderRadius.circular(20),
                             border: Border.all(
-                              color: Colors.black.withOpacity(0.1),
+                              color: isDarkMode 
+                                  ? AppColors.darkBorder.withOpacity(0.3)
+                                  : Colors.black.withOpacity(0.1),
                               width: 1,
                             ),
                             boxShadow: [
@@ -682,16 +691,16 @@ class _HandbookScreenState extends State<HandbookScreen> {
                                         controller: _messageController,
                                         style: GoogleFonts.montserrat(
                                           fontSize: 14,
-                                          color: Colors.black87,
+                                          color: isDarkMode ? AppColors.darkTextPrimary : Colors.black87,
                                         ),
                                         decoration: InputDecoration(
                                           hintText: 'Ask me anything...',
                                           hintStyle: GoogleFonts.montserrat(
                                             fontSize: 14,
-                                            color: Colors.grey[500],
+                                            color: isDarkMode ? AppColors.darkTextSecondary : Colors.grey[500],
                                           ),
                                           filled: true,
-                                          fillColor: Colors.grey[50],
+                                          fillColor: isDarkMode ? AppColors.darkBackgroundDeep : Colors.grey[50],
                                           border: OutlineInputBorder(
                                             borderRadius: BorderRadius.circular(
                                               20,

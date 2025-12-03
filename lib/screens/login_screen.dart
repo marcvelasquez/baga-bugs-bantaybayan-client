@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:provider/provider.dart';
 import '../core/theme/colors.dart';
+import '../services/auth_service.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -17,8 +18,8 @@ class _LoginScreenState extends State<LoginScreen> {
   
   DateTime? _selectedBirthday;
   String? _selectedGender;
-  bool _isLoading = false;
-
+  bool _isRegistering = false; // Track if user is registering or logging in
+  
   final List<String> _genderOptions = ['Male', 'Female', 'Other'];
 
   @override
@@ -70,227 +71,312 @@ class _LoginScreenState extends State<LoginScreen> {
     return age;
   }
 
-  Future<void> _handleLogin() async {
+  Future<void> _handleSubmit() async {
     if (!_formKey.currentState!.validate()) return;
 
-    if (_selectedBirthday == null) {
-      _showError('Please select your birthday');
-      return;
+    if (_isRegistering) {
+      if (_selectedBirthday == null) {
+        _showError('Please select your birthday');
+        return;
+      }
+      if (_selectedGender == null) {
+        _showError('Please select your gender');
+        return;
+      }
+      await _handleRegister();
+    } else {
+      await _handleLogin();
     }
-    if (_selectedGender == null) {
-      _showError('Please select your gender');
-      return;
-    }
+  }
 
-    setState(() {
-      _isLoading = true;
-    });
+  Future<void> _handleRegister() async {
+    final authService = Provider.of<AuthService>(context, listen: false);
 
     try {
-      // Save user data to local storage
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('user_fullName', _fullNameController.text.trim());
-      await prefs.setString('user_phoneNumber', _phoneController.text.trim());
-      await prefs.setString('user_gender', _selectedGender!);
-      await prefs.setString('user_birthday', _selectedBirthday!.toIso8601String());
-      await prefs.setInt('user_age', _calculateAge(_selectedBirthday!));
-      await prefs.setBool('user_logged_in', true);
+      final success = await authService.register(
+        fullName: _fullNameController.text.trim(),
+        phone: _phoneController.text.trim(),
+        gender: _selectedGender!,
+        birthday: _selectedBirthday!,
+      );
 
-      _showSuccess('Login successful! Welcome to BantayBayan!');
-      
-      // Navigate to main app
-      if (mounted) {
-        Navigator.of(context).pushReplacementNamed('/home');
+      if (success) {
+        _showSuccess('Registration successful! Welcome to BantayBayan!');
+        if (mounted) {
+          Navigator.of(context).pushReplacementNamed('/home');
+        }
       }
-      
+    } catch (e) {
+      _showError('Registration failed: ${e.toString()}');
+    }
+  }
+
+  Future<void> _handleLogin() async {
+    final authService = Provider.of<AuthService>(context, listen: false);
+
+    try {
+      final success = await authService.login(
+        phone: _phoneController.text.trim(),
+      );
+
+      if (success) {
+        _showSuccess('Login successful! Welcome back!');
+        if (mounted) {
+          Navigator.of(context).pushReplacementNamed('/home');
+        }
+      } else {
+        _showError('Login failed. Please check your phone number or register first.');
+      }
     } catch (e) {
       _showError('Login failed: ${e.toString()}');
-    } finally {
-      setState(() {
-        _isLoading = false;
-      });
     }
   }
 
   void _showError(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: AppColors.emergencyRed,
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
+    if (!mounted) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(message),
+          backgroundColor: AppColors.emergencyRed,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    });
   }
 
   void _showSuccess(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: AppColors.success,
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
+    if (!mounted) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(message),
+          backgroundColor: AppColors.success,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    });
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.white,
-      body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24),
-          child: Form(
-            key: _formKey,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const SizedBox(height: 40),
-                
-                // Logo/Header
-                Center(
-                  child: Column(
-                    children: [
-                      Container(
-                        width: 80,
-                        height: 80,
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFFF6B6B),
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: const Icon(
-                          Icons.security_rounded,
-                          size: 40,
-                          color: Colors.white,
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      Text(
-                        'BantayBayan',
-                        style: GoogleFonts.montserrat(
-                          fontSize: 28,
-                          fontWeight: FontWeight.w700,
-                          color: const Color(0xFFFF6B6B),
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        'Create your profile',
-                        style: GoogleFonts.montserrat(
-                          fontSize: 16,
-                          color: Colors.grey[600],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                
-                const SizedBox(height: 40),
-
-                // Full Name Field
-                _buildLabel('Full Name'),
-                const SizedBox(height: 8),
-                _buildTextField(
-                  controller: _fullNameController,
-                  hint: 'Enter your full name',
-                  icon: Icons.person_outline,
-                  validator: (value) {
-                    if (value?.trim().isEmpty ?? true) {
-                      return 'Full name is required';
-                    }
-                    return null;
-                  },
-                ),
-                const SizedBox(height: 20),
-
-                // Phone Number Field
-                _buildLabel('Phone Number'),
-                const SizedBox(height: 8),
-                _buildTextField(
-                  controller: _phoneController,
-                  hint: 'Enter your phone number',
-                  icon: Icons.phone_outlined,
-                  keyboardType: TextInputType.phone,
-                  validator: (value) {
-                    if (value?.trim().isEmpty ?? true) {
-                      return 'Phone number is required';
-                    }
-                    if (value!.length < 10) {
-                      return 'Please enter a valid phone number';
-                    }
-                    return null;
-                  },
-                ),
-                const SizedBox(height: 20),
-
-                // Gender Field
-                _buildLabel('Gender'),
-                const SizedBox(height: 8),
-                _buildDropdownField(),
-                const SizedBox(height: 20),
-
-                // Birthday Field
-                _buildLabel('Birthday'),
-                const SizedBox(height: 8),
-                _buildDateField(),
-                const SizedBox(height: 32),
-
-                // Submit Button
-                SizedBox(
-                  width: double.infinity,
-                  height: 56,
-                  child: ElevatedButton(
-                    onPressed: _isLoading ? null : _handleLogin,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFFFF6B6B),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                      elevation: 0,
-                    ),
-                    child: _isLoading
-                        ? const CircularProgressIndicator(
-                            color: Colors.white,
-                            strokeWidth: 2,
-                          )
-                        : Text(
-                            'Continue',
-                            style: GoogleFonts.montserrat(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w600,
+    final isDarkMode = Theme.of(context).brightness == Brightness.dark;
+    
+    return Consumer<AuthService>(
+      builder: (context, authService, child) {
+        return Scaffold(
+          backgroundColor: isDarkMode 
+            ? AppColors.darkBackgroundDeep 
+            : AppColors.lightBackgroundPrimary,
+          body: SafeArea(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(24),
+              child: Form(
+                key: _formKey,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const SizedBox(height: 40),
+                    
+                    // Logo/Header
+                    Center(
+                      child: Column(
+                        children: [
+                          Container(
+                            width: 80,
+                            height: 80,
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFFF6B6B),
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            child: const Icon(
+                              Icons.security_rounded,
+                              size: 40,
                               color: Colors.white,
                             ),
                           ),
-                  ),
-                ),
-
-                const SizedBox(height: 24),
-
-                // Info text
-                Center(
-                  child: Text(
-                    'Your information helps us provide\nbetter emergency assistance',
-                    textAlign: TextAlign.center,
-                    style: GoogleFonts.montserrat(
-                      fontSize: 12,
-                      color: Colors.grey[600],
+                          const SizedBox(height: 16),
+                          Text(
+                            'BantayBayan',
+                            style: GoogleFonts.montserrat(
+                              fontSize: 28,
+                              fontWeight: FontWeight.w700,
+                              color: const Color(0xFFFF6B6B),
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            _isRegistering ? 'Create your account' : 'Welcome back',
+                            style: GoogleFonts.montserrat(
+                              fontSize: 16,
+                              color: isDarkMode ? AppColors.darkTextSecondary : AppColors.lightTextSecondary,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
+                    
+                    const SizedBox(height: 40),
+
+                    // Phone Number Field (Always visible)
+                    _buildLabel('Phone Number'),
+                    const SizedBox(height: 8),
+                    _buildTextField(
+                      controller: _phoneController,
+                      hint: 'Enter your phone number',
+                      icon: Icons.phone_outlined,
+                      keyboardType: TextInputType.phone,
+                      validator: (value) {
+                        if (value?.trim().isEmpty ?? true) {
+                          return 'Phone number is required';
+                        }
+                        if (value!.length < 10) {
+                          return 'Please enter a valid phone number';
+                        }
+                        return null;
+                      },
+                    ),
+                    const SizedBox(height: 20),
+
+                    // Registration-only fields
+                    if (_isRegistering) ...[
+                      // Full Name Field
+                      _buildLabel('Full Name'),
+                      const SizedBox(height: 8),
+                      _buildTextField(
+                        controller: _fullNameController,
+                        hint: 'Enter your full name',
+                        icon: Icons.person_outline,
+                        validator: (value) {
+                          if (value?.trim().isEmpty ?? true) {
+                            return 'Full name is required';
+                          }
+                          return null;
+                        },
+                      ),
+                      const SizedBox(height: 20),
+
+                      // Gender Field
+                      _buildLabel('Gender'),
+                      const SizedBox(height: 8),
+                      _buildDropdownField(),
+                      const SizedBox(height: 20),
+
+                      // Birthday Field
+                      _buildLabel('Birthday'),
+                      const SizedBox(height: 8),
+                      _buildDateField(),
+                      const SizedBox(height: 32),
+                    ] else ...[
+                      const SizedBox(height: 32),
+                    ],
+
+                    // Submit Button
+                    SizedBox(
+                      width: double.infinity,
+                      height: 56,
+                      child: ElevatedButton(
+                        onPressed: authService.isLoading ? null : _handleSubmit,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFFFF6B6B),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          elevation: 0,
+                        ),
+                        child: authService.isLoading
+                            ? const CircularProgressIndicator(
+                                color: Colors.white,
+                                strokeWidth: 2,
+                              )
+                            : Text(
+                                _isRegistering ? 'Create Account' : 'Login',
+                                style: GoogleFonts.montserrat(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.white,
+                                ),
+                              ),
+                      ),
+                    ),
+
+                    const SizedBox(height: 16),
+
+                    // Switch between login/register
+                    Center(
+                      child: TextButton(
+                        onPressed: () {
+                          setState(() {
+                            _isRegistering = !_isRegistering;
+                            // Clear form when switching
+                            if (!_isRegistering) {
+                              _fullNameController.clear();
+                              _selectedGender = null;
+                              _selectedBirthday = null;
+                            }
+                          });
+                        },
+                        child: RichText(
+                          text: TextSpan(
+                            children: [
+                              TextSpan(
+                                text: _isRegistering 
+                                    ? 'Already have an account? ' 
+                                    : 'Don\'t have an account? ',
+                                style: GoogleFonts.montserrat(
+                                  fontSize: 14,
+                                  color: Colors.grey[600],
+                                ),
+                              ),
+                              TextSpan(
+                                text: _isRegistering ? 'Login' : 'Register',
+                                style: GoogleFonts.montserrat(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w600,
+                                  color: const Color(0xFFFF6B6B),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+
+                    const SizedBox(height: 16),
+
+                    // Info text
+                    Center(
+                      child: Text(
+                        _isRegistering 
+                            ? 'Your information helps us provide\nbetter emergency assistance'
+                            : 'Enter your phone number to continue',
+                        textAlign: TextAlign.center,
+                        style: GoogleFonts.montserrat(
+                          fontSize: 12,
+                          color: Colors.grey[600],
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
-              ],
+              ),
             ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 
   Widget _buildLabel(String text) {
+    final isDarkMode = Theme.of(context).brightness == Brightness.dark;
     return Text(
       text,
       style: GoogleFonts.montserrat(
         fontSize: 14,
         fontWeight: FontWeight.w600,
-        color: Colors.black87,
+        color: isDarkMode ? AppColors.darkTextPrimary : AppColors.lightTextPrimary,
       ),
     );
   }
@@ -302,34 +388,35 @@ class _LoginScreenState extends State<LoginScreen> {
     TextInputType? keyboardType,
     String? Function(String?)? validator,
   }) {
+    final isDarkMode = Theme.of(context).brightness == Brightness.dark;
     return TextFormField(
       controller: controller,
       keyboardType: keyboardType,
       validator: validator,
       style: GoogleFonts.montserrat(
         fontSize: 14,
-        color: Colors.black87,
+        color: isDarkMode ? AppColors.darkTextPrimary : AppColors.lightTextPrimary,
       ),
       decoration: InputDecoration(
         hintText: hint,
         hintStyle: GoogleFonts.montserrat(
           fontSize: 14,
-          color: Colors.grey[500],
+          color: isDarkMode ? AppColors.darkTextSecondary : AppColors.lightTextSecondary,
         ),
         prefixIcon: Icon(
           icon,
           size: 20,
-          color: Colors.grey[600],
+          color: isDarkMode ? AppColors.darkTextSecondary : AppColors.lightTextSecondary,
         ),
         filled: true,
-        fillColor: Colors.grey[50],
+        fillColor: isDarkMode ? AppColors.darkBackgroundElevated : AppColors.lightBackgroundSecondary,
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
           borderSide: BorderSide.none,
         ),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide(color: Colors.grey[200]!),
+          borderSide: BorderSide(color: isDarkMode ? AppColors.darkBorder : AppColors.lightBorderPrimary),
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
@@ -345,28 +432,29 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Widget _buildDropdownField() {
+    final isDarkMode = Theme.of(context).brightness == Brightness.dark;
     return DropdownButtonFormField<String>(
       value: _selectedGender,
       decoration: InputDecoration(
         hintText: 'Select your gender',
         hintStyle: GoogleFonts.montserrat(
           fontSize: 14,
-          color: Colors.grey[500],
+          color: isDarkMode ? AppColors.darkTextSecondary : AppColors.lightTextSecondary,
         ),
         prefixIcon: Icon(
           Icons.person_pin_outlined,
           size: 20,
-          color: Colors.grey[600],
+          color: isDarkMode ? AppColors.darkTextSecondary : AppColors.lightTextSecondary,
         ),
         filled: true,
-        fillColor: Colors.grey[50],
+        fillColor: isDarkMode ? AppColors.darkBackgroundElevated : AppColors.lightBackgroundSecondary,
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
           borderSide: BorderSide.none,
         ),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide(color: Colors.grey[200]!),
+          borderSide: BorderSide(color: isDarkMode ? AppColors.darkBorder : AppColors.lightBorderPrimary),
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
@@ -381,7 +469,7 @@ class _LoginScreenState extends State<LoginScreen> {
             gender,
             style: GoogleFonts.montserrat(
               fontSize: 14,
-              color: Colors.black87,
+              color: isDarkMode ? AppColors.darkTextPrimary : AppColors.lightTextPrimary,
             ),
           ),
         );
@@ -401,14 +489,15 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Widget _buildDateField() {
+    final isDarkMode = Theme.of(context).brightness == Brightness.dark;
     return GestureDetector(
       onTap: _selectBirthday,
       child: Container(
         width: double.infinity,
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
         decoration: BoxDecoration(
-          color: Colors.grey[50],
-          border: Border.all(color: Colors.grey[200]!),
+          color: isDarkMode ? AppColors.darkBackgroundElevated : AppColors.lightBackgroundSecondary,
+          border: Border.all(color: isDarkMode ? AppColors.darkBorder : AppColors.lightBorderPrimary),
           borderRadius: BorderRadius.circular(12),
         ),
         child: Row(
@@ -416,7 +505,7 @@ class _LoginScreenState extends State<LoginScreen> {
             Icon(
               Icons.cake_outlined,
               size: 20,
-              color: Colors.grey[600],
+              color: isDarkMode ? AppColors.darkTextSecondary : AppColors.lightTextSecondary,
             ),
             const SizedBox(width: 12),
             Expanded(
@@ -427,15 +516,15 @@ class _LoginScreenState extends State<LoginScreen> {
                 style: GoogleFonts.montserrat(
                   fontSize: 14,
                   color: _selectedBirthday != null
-                      ? Colors.black87
-                      : Colors.grey[500],
+                      ? (isDarkMode ? AppColors.darkTextPrimary : AppColors.lightTextPrimary)
+                      : (isDarkMode ? AppColors.darkTextSecondary : AppColors.lightTextSecondary),
                 ),
               ),
             ),
             Icon(
               Icons.calendar_today,
               size: 18,
-              color: Colors.grey[600],
+              color: isDarkMode ? AppColors.darkTextSecondary : AppColors.lightTextSecondary,
             ),
           ],
         ),
