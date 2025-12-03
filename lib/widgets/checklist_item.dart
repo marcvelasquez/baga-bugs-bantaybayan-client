@@ -34,7 +34,9 @@ class ChecklistItem extends StatelessWidget {
         decoration: BoxDecoration(
           border: Border(
             bottom: BorderSide(
-              color: Colors.grey[200]!,
+              color: isDarkMode 
+                  ? AppColors.darkBorder.withOpacity(0.3)
+                  : Colors.grey[200]!,
               width: 0.5,
             ),
           ),
@@ -46,7 +48,7 @@ class ChecklistItem extends StatelessWidget {
               isChecked ? Icons.check_circle : Icons.circle_outlined,
               color: isChecked
                   ? AppColors.success
-                  : Colors.grey[400],
+                  : (isDarkMode ? Colors.grey[600] : Colors.grey[400]),
               size: 22,
             ),
             const SizedBox(width: 12),
@@ -58,10 +60,10 @@ class ChecklistItem extends StatelessWidget {
                   fontSize: 14,
                   fontWeight: FontWeight.w500,
                   decoration: isChecked ? TextDecoration.lineThrough : null,
-                  decorationColor: Colors.grey[400],
+                  decorationColor: isDarkMode ? Colors.grey[600] : Colors.grey[400],
                   color: isChecked
-                      ? Colors.grey[500]
-                      : Colors.black87,
+                      ? (isDarkMode ? Colors.grey[600] : Colors.grey[500])
+                      : (isDarkMode ? AppColors.darkTextPrimary : Colors.black87),
                   height: 1.4,
                 ),
               ),

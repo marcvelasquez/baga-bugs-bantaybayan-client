@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:provider/provider.dart';
 import '../core/theme/colors.dart';
 import '../core/theme/theme_provider.dart';
+import '../services/auth_service.dart';
 
 class ProfileDropdown extends StatefulWidget {
   const ProfileDropdown({super.key});
@@ -17,12 +17,8 @@ class _ProfileDropdownState extends State<ProfileDropdown> {
   final GlobalKey _dropdownKey = GlobalKey();
   OverlayEntry? _overlayEntry;
 
-  // User data from SharedPreferences
-  String _fullName = "Not set";
-  String _phoneNumber = "Not set";
-  String _gender = "Not set";
-  String _birthDate = "Not set";
-  int _age = 0;
+  // User data from Appwrite
+  Map<String, dynamic>? _userData;
   bool _isLoading = true;
 
   // Dark mode background color from oklch(20.8% 0.042 265.755)
@@ -41,20 +37,11 @@ class _ProfileDropdownState extends State<ProfileDropdown> {
   }
 
   Future<void> _loadUserData() async {
+    final authService = Provider.of<AuthService>(context, listen: false);
     try {
-      final prefs = await SharedPreferences.getInstance();
+      final userData = await authService.getUserData();
       setState(() {
-        _fullName = prefs.getString('user_fullName') ?? "Not set";
-        _phoneNumber = prefs.getString('user_phoneNumber') ?? "Not set";
-        _gender = prefs.getString('user_gender') ?? "Not set";
-        _age = prefs.getInt('user_age') ?? 0;
-        
-        final birthdayString = prefs.getString('user_birthday');
-        if (birthdayString != null) {
-          final birthday = DateTime.parse(birthdayString);
-          _birthDate = '${birthday.day}/${birthday.month}/${birthday.year}';
-        }
-        
+        _userData = userData;
         _isLoading = false;
       });
     } catch (e) {
@@ -65,9 +52,9 @@ class _ProfileDropdownState extends State<ProfileDropdown> {
   }
 
   Future<void> _signOut() async {
+    final authService = Provider.of<AuthService>(context, listen: false);
     try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.clear();
+      await authService.logout();
       if (mounted) {
         Navigator.of(context).pushReplacementNamed('/login');
       }
@@ -120,11 +107,11 @@ class _ProfileDropdownState extends State<ProfileDropdown> {
         decoration: BoxDecoration(
           color: isDarkMode 
               ? _darkModeColor.withOpacity(0.9)
-              : Colors.white.withOpacity(0.9),
+              : AppColors.lightBackgroundSecondary,
           shape: BoxShape.circle,
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.1),
+              color: AppColors.shadowMedium,
               blurRadius: 4,
               offset: const Offset(0, 2),
             ),
@@ -133,7 +120,7 @@ class _ProfileDropdownState extends State<ProfileDropdown> {
         child: Icon(
           Icons.person,
           size: 20,
-          color: isDarkMode ? Colors.white : AppColors.lightTextPrimary,
+          color: isDarkMode ? AppColors.darkTextPrimary : AppColors.lightTextPrimary,
         ),
       ),
     );
@@ -244,7 +231,7 @@ class _ProfileDropdownState extends State<ProfileDropdown> {
                                   _buildInfoRow(
                                     icon: Icons.badge_outlined,
                                     label: 'Full Name',
-                                    value: _fullName,
+                                    value: _userData?['full_name'] ?? 'Not set',
                                     isDarkMode: isDarkMode,
                                   ),
                                   const SizedBox(height: 12),
@@ -253,7 +240,7 @@ class _ProfileDropdownState extends State<ProfileDropdown> {
                                   _buildInfoRow(
                                     icon: Icons.phone_outlined,
                                     label: 'Phone Number',
-                                    value: _phoneNumber,
+                                    value: _userData?['phone_number'] ?? 'Not set',
                                     isDarkMode: isDarkMode,
                                   ),
                                   const SizedBox(height: 12),
@@ -262,7 +249,7 @@ class _ProfileDropdownState extends State<ProfileDropdown> {
                                   _buildInfoRow(
                                     icon: Icons.person_pin_outlined,
                                     label: 'Gender',
-                                    value: _gender,
+                                    value: _userData?['gender'] ?? 'Not set',
                                     isDarkMode: isDarkMode,
                                   ),
                                   const SizedBox(height: 12),
@@ -271,7 +258,7 @@ class _ProfileDropdownState extends State<ProfileDropdown> {
                                   _buildInfoRow(
                                     icon: Icons.cake_outlined,
                                     label: 'Birth Date',
-                                    value: _age > 0 ? '$_birthDate (Age: $_age)' : _birthDate,
+                                    value: _getBirthDateDisplay(),
                                     isDarkMode: isDarkMode,
                                   ),
                                   const SizedBox(height: 12),
@@ -356,6 +343,19 @@ class _ProfileDropdownState extends State<ProfileDropdown> {
         );
       },
     );
+  }
+
+  String _getBirthDateDisplay() {
+    if (_userData == null || _userData!['birthday'] == null) return 'Not set';
+    
+    try {
+      final birthday = DateTime.parse(_userData!['birthday']);
+      final age = _userData!['age'] ?? 0;
+      final formattedDate = '${birthday.day}/${birthday.month}/${birthday.year}';
+      return age > 0 ? '$formattedDate (Age: $age)' : formattedDate;
+    } catch (e) {
+      return 'Not set';
+    }
   }
 
   Widget _buildInfoRow({

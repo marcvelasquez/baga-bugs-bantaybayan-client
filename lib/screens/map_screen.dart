@@ -263,11 +263,13 @@ class _MapScreenState extends State<MapScreen> {
               margin: const EdgeInsets.symmetric(horizontal: 20),
               padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
               decoration: BoxDecoration(
-                color: Colors.white,
+                color: isDarkMode
+                    ? AppColors.darkBackgroundElevated
+                    : AppColors.lightBackgroundSecondary,
                 borderRadius: BorderRadius.circular(30),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.08),
+                    color: AppColors.shadowMedium,
                     blurRadius: 12,
                     offset: const Offset(0, 4),
                   ),
@@ -285,13 +287,21 @@ class _MapScreenState extends State<MapScreen> {
                 },
                 child: Row(
                   children: [
-                    Icon(Icons.search, color: Colors.grey[600], size: 22),
+                    Icon(
+                      Icons.search,
+                      color: isDarkMode
+                          ? AppColors.darkTextSecondary
+                          : AppColors.lightTextSecondary,
+                      size: 22,
+                    ),
                     const SizedBox(width: 14),
                     Text(
                       'Search emergency locations...',
                       style: GoogleFonts.montserrat(
                         fontSize: 15,
-                        color: Colors.grey[500],
+                        color: isDarkMode
+                            ? AppColors.darkTextSecondary
+                            : AppColors.lightTextSecondary,
                         fontWeight: FontWeight.w400,
                       ),
                     ),
@@ -378,11 +388,15 @@ class _MapScreenState extends State<MapScreen> {
             bottom: 110,
             child: FloatingActionButton(
               onPressed: _recenterMap,
-              backgroundColor: isDarkMode ? Colors.grey[800] : Colors.white,
+              backgroundColor: isDarkMode
+                  ? AppColors.darkBackgroundElevated
+                  : AppColors.lightBackgroundSecondary,
               mini: true,
               child: Icon(
                 Icons.my_location,
-                color: isDarkMode ? Colors.white : Colors.black,
+                color: isDarkMode
+                    ? AppColors.darkTextPrimary
+                    : AppColors.lightTextPrimary,
               ),
             ),
           ),
