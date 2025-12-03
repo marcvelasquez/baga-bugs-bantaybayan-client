@@ -1,9 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:geolocator/geolocator.dart';
 import 'dart:ui';
+import 'dart:math' as math;
 import '../core/theme/theme_provider.dart';
-import '../widgets/flood_zone_painter.dart';
+import '../services/api_service.dart';
+import '../models/api_models.dart';
 
 class SituationScreen extends StatefulWidget {
   const SituationScreen({super.key});
@@ -13,14 +17,278 @@ class SituationScreen extends StatefulWidget {
 }
 
 class _SituationScreenState extends State<SituationScreen> {
-  // Pan and zoom state
-  Offset _offset = Offset.zero;
-  double _scale = 1.0;
+  GoogleMapController? _mapController;
+  final Set<Marker> _markers = {};
+  final Set<Circle> _circles = {};
+  LatLng? _userPinLocation;
+  ReportStats? _reportStats;
+  bool _isLoadingStats = false;
+  List<ReportModel> _allReports = [];
+  WeatherModel? _currentWeather;
+
+  // Default location (Manila, Philippines)
+  static const LatLng _defaultLocation = LatLng(14.5995, 120.9842);
+  LatLng _currentLocation = _defaultLocation;
+
+  @override
+  void initState() {
+    super.initState();
+    _getCurrentLocation();
+    _loadReportStats();
+    _loadReports();
+    _loadWeather();
+  }
+
+  Future<void> _loadWeather() async {
+    try {
+      final weather = await ApiService.getCurrentWeather(
+        latitude: _currentLocation.latitude,
+        longitude: _currentLocation.longitude,
+      );
+      setState(() {
+        _currentWeather = weather;
+      });
+    } catch (e) {
+      debugPrint('❌ Failed to load weather: $e');
+    }
+  }
+
+  Future<void> _loadReports() async {
+    try {
+      debugPrint('🔄 Loading reports from API...');
+      final reports = await ApiService.getReports();
+      debugPrint('✅ Loaded ${reports.length} reports');
+      setState(() {
+        _allReports = reports;
+      });
+      _updateReportMarkers();
+    } catch (e) {
+      // Show error in UI for debugging
+      debugPrint('❌ Failed to load reports: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to load reports: $e'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+    }
+  }
+
+  void _updateReportMarkers() {
+    debugPrint('🗺️ Updating report markers for ${_allReports.length} reports');
+    
+    // Clear existing report markers/circles but keep user pin
+    _markers.removeWhere((marker) => marker.markerId.value != 'user_pin');
+    _circles.clear();
+
+    // Cluster reports by proximity
+    final clusters = _clusterReports(_allReports);
+    
+    debugPrint('📍 Created ${clusters.length} clusters');
+
+    // Create markers and circles for each cluster
+    for (var cluster in clusters) {
+      final opacity = _calculateOpacity(cluster.reports.length);
+      final color = _getColorForType(cluster.incidentType);
+      
+      debugPrint('  Cluster at ${cluster.center.latitude}, ${cluster.center.longitude}: ${cluster.reports.length} reports, opacity: $opacity');
+      
+      // Add circle for affected area
+      _circles.add(
+        Circle(
+          circleId: CircleId('cluster_${cluster.center.latitude}_${cluster.center.longitude}'),
+          center: cluster.center,
+          radius: 100 + (cluster.reports.length * 50.0), // Larger radius for more reports
+          fillColor: color.withOpacity(opacity * 0.3),
+          strokeColor: color.withOpacity(opacity),
+          strokeWidth: 2,
+        ),
+      );
+
+      // Add marker
+      _markers.add(
+        Marker(
+          markerId: MarkerId('cluster_${cluster.center.latitude}_${cluster.center.longitude}'),
+          position: cluster.center,
+          alpha: opacity,
+          icon: BitmapDescriptor.defaultMarkerWithHue(_getMarkerHue(cluster.incidentType)),
+          infoWindow: InfoWindow(
+            title: '${cluster.incidentType.name.toUpperCase()} Reports',
+            snippet: '${cluster.reports.length} report${cluster.reports.length > 1 ? 's' : ''}',
+          ),
+        ),
+      );
+    }
+    
+    debugPrint('✅ Added ${_markers.length} markers and ${_circles.length} circles to map');
+
+    setState(() {});
+  }
+
+  List<ReportCluster> _clusterReports(List<ReportModel> reports) {
+    if (reports.isEmpty) return [];
+
+    final clusters = <ReportCluster>[];
+    final processed = <int>{};
+
+    for (var i = 0; i < reports.length; i++) {
+      if (processed.contains(i)) continue;
+
+      final centerReport = reports[i];
+      final clusterReports = <ReportModel>[centerReport];
+      processed.add(i);
+
+      // Find nearby reports of the same type
+      for (var j = i + 1; j < reports.length; j++) {
+        if (processed.contains(j)) continue;
+        
+        final report = reports[j];
+        final distance = _calculateDistance(
+          centerReport.latitude,
+          centerReport.longitude,
+          report.latitude,
+          report.longitude,
+        );
+
+        // Cluster if within 500 meters and same type
+        if (distance < 500 && report.incidentType == centerReport.incidentType) {
+          clusterReports.add(report);
+          processed.add(j);
+        }
+      }
+
+      // Calculate cluster center
+      final avgLat = clusterReports.map((r) => r.latitude).reduce((a, b) => a + b) / clusterReports.length;
+      final avgLng = clusterReports.map((r) => r.longitude).reduce((a, b) => a + b) / clusterReports.length;
+
+      clusters.add(ReportCluster(
+        center: LatLng(avgLat, avgLng),
+        reports: clusterReports,
+        incidentType: centerReport.incidentType,
+      ));
+    }
+
+    return clusters;
+  }
+
+  double _calculateDistance(double lat1, double lon1, double lat2, double lon2) {
+    const p = 0.017453292519943295; // Math.PI / 180
+    final a = 0.5 - math.cos((lat2 - lat1) * p) / 2 +
+        math.cos(lat1 * p) * math.cos(lat2 * p) * (1 - math.cos((lon2 - lon1) * p)) / 2;
+    return 12742000 * math.asin(math.sqrt(a)); // 2 * R * asin... (in meters)
+  }
+
+  double _calculateOpacity(int reportCount) {
+    // Map report count to opacity: 1 report = 0.3, 5+ reports = 1.0
+    return (0.3 + (reportCount - 1) * 0.175).clamp(0.3, 1.0);
+  }
+
+  Color _getColorForType(IncidentType type) {
+    switch (type) {
+      case IncidentType.critical:
+        return const Color(0xFFFF6B6B);
+      case IncidentType.warning:
+        return Colors.orange;
+      case IncidentType.info:
+        return Colors.blue;
+    }
+  }
+
+  double _getMarkerHue(IncidentType type) {
+    switch (type) {
+      case IncidentType.critical:
+        return BitmapDescriptor.hueRed;
+      case IncidentType.warning:
+        return BitmapDescriptor.hueOrange;
+      case IncidentType.info:
+        return BitmapDescriptor.hueAzure;
+    }
+  }
+
+  Future<void> _loadReportStats() async {
+    setState(() {
+      _isLoadingStats = true;
+    });
+
+    try {
+      final stats = await ApiService.getReportStats();
+      setState(() {
+        _reportStats = stats;
+        _isLoadingStats = false;
+      });
+    } catch (e) {
+      setState(() {
+        _isLoadingStats = false;
+      });
+      // Show error but continue with default values
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to load stats: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _getCurrentLocation() async {
+    bool serviceEnabled;
+    LocationPermission permission;
+
+    serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) {
+      return;
+    }
+
+    permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+      if (permission == LocationPermission.denied) {
+        return;
+      }
+    }
+
+    if (permission == LocationPermission.deniedForever) {
+      return;
+    }
+
+    try {
+      final position = await Geolocator.getCurrentPosition();
+      setState(() {
+        _currentLocation = LatLng(position.latitude, position.longitude);
+      });
+      _mapController?.animateCamera(CameraUpdate.newLatLng(_currentLocation));
+    } catch (e) {
+      // Use default location if getting current location fails
+    }
+  }
 
   void _recenterMap() {
+    if (_mapController != null) {
+      _mapController!.animateCamera(
+        CameraUpdate.newLatLngZoom(_currentLocation, 14),
+      );
+    }
+  }
+
+  void _onMapTapped(LatLng position) {
     setState(() {
-      _offset = Offset.zero;
-      _scale = 1.0;
+      // Remove previous pin if exists
+      _markers.removeWhere((marker) => marker.markerId.value == 'user_pin');
+
+      // Add new pin
+      _userPinLocation = position;
+      _markers.add(
+        Marker(
+          markerId: const MarkerId('user_pin'),
+          position: position,
+          icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
+          infoWindow: const InfoWindow(title: 'Report Location'),
+        ),
+      );
     });
   }
 
@@ -43,55 +311,65 @@ class _SituationScreenState extends State<SituationScreen> {
     return '${months[now.month - 1]} ${now.day}, ${now.year}';
   }
 
+  IconData _getWeatherIcon(int weatherCode) {
+    if (weatherCode == 0 || weatherCode == 1) {
+      return Icons.wb_sunny;
+    } else if (weatherCode == 2 || weatherCode == 3) {
+      return Icons.wb_cloudy;
+    } else if (weatherCode >= 51 && weatherCode <= 67) {
+      return Icons.grain;
+    } else if (weatherCode >= 61 && weatherCode <= 82) {
+      return Icons.water_drop;
+    } else if (weatherCode >= 95) {
+      return Icons.flash_on;
+    } else {
+      return Icons.cloud;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     final themeProvider = Provider.of<ThemeProvider>(context);
     final isDarkMode = themeProvider.isDarkMode;
-    final size = MediaQuery.of(context).size;
-
-    // Define flood zones
-    final floodZones = [
-      const FloodZone(center: Offset(0.3, 0.4), radius: 120, opacity: 0.6),
-      const FloodZone(center: Offset(0.7, 0.3), radius: 90, opacity: 0.4),
-      const FloodZone(center: Offset(0.5, 0.7), radius: 100, opacity: 0.5),
-    ];
 
     return Scaffold(
       backgroundColor: Colors.white,
       body: Stack(
         children: [
-          // Pannable and zoomable map
-          GestureDetector(
-            onScaleStart: (details) {
-              setState(() {
-                // Store initial values
-              });
-            },
-            onScaleUpdate: (details) {
-              setState(() {
-                _scale = (_scale * details.scale).clamp(0.5, 3.0);
-                _offset += details.focalPointDelta;
-              });
-            },
-            child: Transform(
-              transform: Matrix4.identity()
-                ..translate(_offset.dx, _offset.dy)
-                ..scale(_scale),
-              child: Stack(
-                children: [
-                  // Flood zone heatmaps
-                  Positioned.fill(
-                    child: CustomPaint(
-                      painter: FloodZonePainter(zones: floodZones),
-                    ),
-                  ),
-
-                  // Cluster markers at various positions
-                  ..._buildClusterMarkers(size, isDarkMode),
-                ],
-              ),
+          // Google Maps
+          GoogleMap(
+            initialCameraPosition: CameraPosition(
+              target: _defaultLocation,
+              zoom: 14,
             ),
+            onMapCreated: (GoogleMapController controller) {
+              _mapController = controller;
+              if (isDarkMode) {
+                controller.setMapStyle('''
+                  [
+                    {
+                      "elementType": "geometry",
+                      "stylers": [{"color": "#242f3e"}]
+                    },
+                    {
+                      "elementType": "labels.text.fill",
+                      "stylers": [{"color": "#746855"}]
+                    },
+                    {
+                      "elementType": "labels.text.stroke",
+                      "stylers": [{"color": "#242f3e"}]
+                    }
+                  ]
+                ''');
+              }
+            },
+            markers: _markers,
+            circles: _circles,
+            onTap: _onMapTapped,
+            myLocationEnabled: true,
+            myLocationButtonEnabled: false,
+            zoomControlsEnabled: false,
+            mapToolbarEnabled: false,
           ),
 
           // Fixed UI overlay
@@ -115,20 +393,107 @@ class _SituationScreenState extends State<SituationScreen> {
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        'Crowd-sourced incident data',
+                        _userPinLocation == null
+                            ? 'Tap on the map to pin a location'
+                            : 'Location pinned - Ready to report',
                         style: GoogleFonts.montserrat(
                           fontSize: 13,
-                          color: Colors.grey[600],
+                          color: _userPinLocation == null
+                              ? Colors.grey[600]
+                              : Colors.green[700],
+                          fontWeight: _userPinLocation == null
+                              ? FontWeight.normal
+                              : FontWeight.w600,
                         ),
                       ),
                       const SizedBox(height: 12),
+                      // Weather card
+                      if (_currentWeather != null)
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(16),
+                          child: BackdropFilter(
+                            filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+                            child: Container(
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withOpacity(0.95),
+                                borderRadius: BorderRadius.circular(16),
+                                border: Border.all(
+                                  color: Colors.black.withOpacity(0.1),
+                                ),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.black.withOpacity(0.08),
+                                    blurRadius: 12,
+                                    offset: const Offset(0, 4),
+                                  ),
+                                ],
+                              ),
+                              child: Row(
+                                children: [
+                                  Icon(
+                                    _getWeatherIcon(_currentWeather!.weatherCode),
+                                    color: Colors.blue,
+                                    size: 40,
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          '${_currentWeather!.temperature.toStringAsFixed(1)}°C',
+                                          style: GoogleFonts.montserrat(
+                                            fontSize: 24,
+                                            fontWeight: FontWeight.w700,
+                                            color: Colors.black87,
+                                          ),
+                                        ),
+                                        Text(
+                                          _currentWeather!.description,
+                                          style: GoogleFonts.montserrat(
+                                            fontSize: 12,
+                                            color: Colors.grey[600],
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  if (_currentWeather!.rain > 0) ...[
+                                    Column(
+                                      children: [
+                                        Icon(
+                                          Icons.water_drop,
+                                          color: Colors.blue[700],
+                                          size: 20,
+                                        ),
+                                        Text(
+                                          '${_currentWeather!.rain.toStringAsFixed(1)}mm',
+                                          style: GoogleFonts.montserrat(
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.w600,
+                                            color: Colors.blue[700],
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ],
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      if (_currentWeather != null) const SizedBox(height: 12),
                       // Active Reports card
                       ClipRRect(
                         borderRadius: BorderRadius.circular(16),
                         child: BackdropFilter(
                           filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
                           child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 10,
+                            ),
                             decoration: BoxDecoration(
                               color: Colors.white.withOpacity(0.95),
                               borderRadius: BorderRadius.circular(16),
@@ -164,8 +529,30 @@ class _SituationScreenState extends State<SituationScreen> {
                                         ),
                                       ),
                                       const Spacer(),
+                                      if (_isLoadingStats)
+                                        SizedBox(
+                                          width: 12,
+                                          height: 12,
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                            valueColor: AlwaysStoppedAnimation<Color>(Colors.grey[400]!),
+                                          ),
+                                        )
+                                      else
+                                        GestureDetector(
+                                          onTap: () {
+                                            _loadReportStats();
+                                            _loadReports();
+                                          },
+                                          child: Icon(
+                                            Icons.refresh,
+                                            size: 16,
+                                            color: Colors.grey[600],
+                                          ),
+                                        ),
+                                      const SizedBox(width: 6),
                                       Text(
-                                        _getCurrentDate(),
+                                        _reportStats?.date ?? _getCurrentDate(),
                                         style: GoogleFonts.montserrat(
                                           fontSize: 10,
                                           fontWeight: FontWeight.w500,
@@ -181,7 +568,7 @@ class _SituationScreenState extends State<SituationScreen> {
                                         flex: 1,
                                         child: _StatBox(
                                           label: 'Info',
-                                          count: 5,
+                                          count: _reportStats?.infoCount ?? 0,
                                           color: Colors.blue,
                                         ),
                                       ),
@@ -190,7 +577,7 @@ class _SituationScreenState extends State<SituationScreen> {
                                         flex: 1,
                                         child: _StatBox(
                                           label: 'Critical',
-                                          count: 25,
+                                          count: _reportStats?.criticalCount ?? 0,
                                           color: Color(0xFFFF6B6B),
                                         ),
                                       ),
@@ -199,7 +586,7 @@ class _SituationScreenState extends State<SituationScreen> {
                                         flex: 1,
                                         child: _StatBox(
                                           label: 'Warning',
-                                          count: 8,
+                                          count: _reportStats?.warningCount ?? 0,
                                           color: Colors.orange,
                                         ),
                                       ),
@@ -216,16 +603,34 @@ class _SituationScreenState extends State<SituationScreen> {
                 ),
 
                 const Spacer(),
-                // Report button at bottom
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 20),
-                  child: _ReportButton(),
-                ),
+
+                // Report button at bottom (only show if pin is placed)
+                if (_userPinLocation != null)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 20),
+                    child: _ReportButton(location: _userPinLocation!),
+                  ),
               ],
             ),
           ),
 
-          // Recenter Button (bottom right, same level as report button)
+          // Debug: Reload reports button (top right)
+          Positioned(
+            right: 16,
+            top: 80,
+            child: FloatingActionButton(
+              onPressed: () {
+                debugPrint('🔄 Manual reload triggered');
+                _loadReports();
+              },
+              backgroundColor: Colors.blue,
+              mini: true,
+              elevation: 4,
+              child: const Icon(Icons.refresh, color: Colors.white),
+            ),
+          ),
+
+          // Recenter Button (bottom right)
           Positioned(
             right: 16,
             bottom: 20,
@@ -238,125 +643,6 @@ class _SituationScreenState extends State<SituationScreen> {
             ),
           ),
         ],
-      ),
-    );
-  }
-
-  List<Widget> _buildClusterMarkers(Size size, bool isDarkMode) {
-    final markers = [
-      (
-        count: 10,
-        severity: ClusterSeverity.high,
-        position: const Offset(0.25, 0.3),
-      ),
-      (
-        count: 5,
-        severity: ClusterSeverity.medium,
-        position: const Offset(0.65, 0.25),
-      ),
-      (
-        count: 2,
-        severity: ClusterSeverity.low,
-        position: const Offset(0.45, 0.5),
-      ),
-      (
-        count: 15,
-        severity: ClusterSeverity.high,
-        position: const Offset(0.75, 0.65),
-      ),
-      (
-        count: 3,
-        severity: ClusterSeverity.medium,
-        position: const Offset(0.3, 0.75),
-      ),
-    ];
-
-    return markers.map((marker) {
-      return Positioned(
-        left: size.width * marker.position.dx - 24,
-        top: size.height * marker.position.dy - 24,
-        child: _ClusterMarker(
-          count: marker.count,
-          severity: marker.severity,
-          isDarkMode: isDarkMode,
-        ),
-      );
-    }).toList();
-  }
-}
-
-enum ClusterSeverity { high, medium, low }
-
-class _ClusterMarker extends StatelessWidget {
-  final int count;
-  final ClusterSeverity severity;
-  final bool isDarkMode;
-
-  const _ClusterMarker({
-    required this.count,
-    required this.severity,
-    required this.isDarkMode,
-  });
-
-  Color get _backgroundColor {
-    switch (severity) {
-      case ClusterSeverity.high:
-        return const Color(0xFFFF6B6B); // Soft red matching map SOS button
-      case ClusterSeverity.medium:
-        return Colors.orange.withOpacity(0.7); // Lighter orange
-      case ClusterSeverity.low:
-        return Colors.blue.withOpacity(0.7); // Lighter blue
-    }
-  }
-
-  Color get _glowColor {
-    switch (severity) {
-      case ClusterSeverity.high:
-        return const Color(0xFFFF6B6B).withOpacity(0.3);
-      case ClusterSeverity.medium:
-        return Colors.orange.withOpacity(0.3);
-      case ClusterSeverity.low:
-        return Colors.blue.withOpacity(0.3);
-    }
-  }
-
-  double get _glowRadius {
-    switch (severity) {
-      case ClusterSeverity.high:
-        return 20.0;
-      case ClusterSeverity.medium:
-        return 15.0;
-      case ClusterSeverity.low:
-        return 10.0;
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 48,
-      height: 48,
-      decoration: BoxDecoration(
-        color: _backgroundColor,
-        shape: BoxShape.circle,
-        border: Border.all(color: Colors.white, width: 3),
-        boxShadow: [
-          BoxShadow(
-            color: _glowColor,
-            blurRadius: _glowRadius,
-            spreadRadius: 2,
-          ),
-        ],
-      ),
-      child: Center(
-        child: Text(
-          count.toString(),
-          style: const TextStyle(
-            color: Colors.white,
-            fontSize: 16,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
       ),
     );
   }
@@ -413,17 +699,152 @@ class _StatBox extends StatelessWidget {
   }
 }
 
-class _ReportButton extends StatelessWidget {
-  Future<void> _showReportModal(BuildContext context) async {
+class _ReportButton extends StatefulWidget {
+  final LatLng location;
+
+  const _ReportButton({required this.location});
+
+  @override
+  State<_ReportButton> createState() => _ReportButtonState();
+}
+
+class _ReportButtonState extends State<_ReportButton> {
+  List<ReportModel> _nearbyReports = [];
+  bool _isCheckingNearby = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkNearbyReports();
+  }
+
+  @override
+  void didUpdateWidget(_ReportButton oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Re-check when location changes
+    if (oldWidget.location != widget.location) {
+      debugPrint('🔄 Pin location changed, re-checking nearby reports...');
+      _checkNearbyReports();
+    }
+  }
+
+  Future<void> _checkNearbyReports() async {
+    debugPrint('🔍 Checking for nearby reports at (${widget.location.latitude}, ${widget.location.longitude})');
+    setState(() => _isCheckingNearby = true);
+    try {
+      final nearby = await ApiService.getNearbyReports(
+        latitude: widget.location.latitude,
+        longitude: widget.location.longitude,
+        radius: 500.0, // 500 meters for easier testing
+      );
+      debugPrint('✅ Found ${nearby.length} nearby reports');
+      setState(() {
+        _nearbyReports = nearby;
+        _isCheckingNearby = false;
+      });
+    } catch (e) {
+      debugPrint('❌ Error checking nearby reports: $e');
+      setState(() => _isCheckingNearby = false);
+    }
+  }
+
+  Future<void> _showReportModal() async {
     await showDialog<String>(
       context: context,
       barrierDismissible: true,
-      builder: (context) => const _ReportIncidentModal(),
+      builder: (context) => _ReportIncidentModal(location: widget.location),
+    );
+  }
+
+  Future<void> _showNearbyReportsDialog() async {
+    await showDialog(
+      context: context,
+      builder: (context) => _NearbyReportsDialog(
+        location: widget.location,
+        nearbyReports: _nearbyReports,
+      ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
+    if (_isCheckingNearby) {
+      return Container(
+        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+        decoration: BoxDecoration(
+          color: Colors.black87,
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Text(
+              'Checking area...',
+              style: GoogleFonts.montserrat(
+                color: Colors.white,
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    // If there are nearby reports, show upvote option
+    if (_nearbyReports.isNotEmpty) {
+      return Container(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.08),
+              offset: const Offset(0, 2),
+              blurRadius: 8,
+            ),
+          ],
+        ),
+        child: Material(
+          color: Colors.orange,
+          borderRadius: BorderRadius.circular(16),
+          child: InkWell(
+            onTap: _showNearbyReportsDialog,
+            borderRadius: BorderRadius.circular(16),
+            child: Container(
+              padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.thumb_up, color: Colors.white, size: 20),
+                  const SizedBox(width: 10),
+                  Text(
+                    '${_nearbyReports.length} Report${_nearbyReports.length > 1 ? 's' : ''} Nearby - Upvote?',
+                    style: GoogleFonts.montserrat(
+                      color: Colors.white,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    // No nearby reports, show normal report button
     return Container(
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(16),
@@ -439,7 +860,7 @@ class _ReportButton extends StatelessWidget {
         color: Colors.black87,
         borderRadius: BorderRadius.circular(16),
         child: InkWell(
-          onTap: () => _showReportModal(context),
+          onTap: _showReportModal,
           borderRadius: BorderRadius.circular(16),
           child: Container(
             padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
@@ -467,7 +888,9 @@ class _ReportButton extends StatelessWidget {
 }
 
 class _ReportIncidentModal extends StatefulWidget {
-  const _ReportIncidentModal();
+  final LatLng location;
+
+  const _ReportIncidentModal({required this.location});
 
   @override
   State<_ReportIncidentModal> createState() => _ReportIncidentModalState();
@@ -508,17 +931,434 @@ class _ReportIncidentModalState extends State<_ReportIncidentModal> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: Colors.black87.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Icon(
+                      Icons.add_alert,
+                      color: Colors.black87,
+                      size: 24,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Report Incident',
+                          style: GoogleFonts.montserrat(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w700,
+                            color: Colors.black87,
+                          ),
+                        ),
+                        Text(
+                          'Help keep your community safe',
+                          style: GoogleFonts.montserrat(
+                            fontSize: 12,
+                            color: Colors.grey[600],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 24),
+              Text(
+                'Incident Type',
+                style: GoogleFonts.montserrat(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.black87,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: ['Info', 'Critical', 'Warning'].map((type) {
+                  final isSelected = _selectedType == type;
+                  final color = _getTypeColor(type);
+                  return Expanded(
+                    child: Padding(
+                      padding: const EdgeInsets.only(right: 8),
+                      child: InkWell(
+                        onTap: () => setState(() => _selectedType = type),
+                        borderRadius: BorderRadius.circular(12),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          decoration: BoxDecoration(
+                            color: isSelected
+                                ? color.withOpacity(0.15)
+                                : Colors.grey[100],
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: isSelected ? color : Colors.transparent,
+                              width: 2,
+                            ),
+                          ),
+                          child: Column(
+                            children: [
+                              Icon(
+                                type == 'Critical'
+                                    ? Icons.error
+                                    : type == 'Warning'
+                                    ? Icons.warning_amber_rounded
+                                    : Icons.info,
+                                color: isSelected ? color : Colors.grey[600],
+                                size: 24,
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                type,
+                                style: GoogleFonts.montserrat(
+                                  fontSize: 11,
+                                  fontWeight: isSelected
+                                      ? FontWeight.w600
+                                      : FontWeight.w500,
+                                  color: isSelected ? color : Colors.grey[700],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  );
+                }).toList(),
+              ),
+              const SizedBox(height: 20),
+              Text(
+                'Description (Optional)',
+                style: GoogleFonts.montserrat(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.black87,
+                ),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: _descriptionController,
+                maxLines: 3,
+                style: GoogleFonts.montserrat(
+                  fontSize: 14,
+                  color: Colors.black87,
+                ),
+                decoration: InputDecoration(
+                  hintText: 'Describe what happened...',
+                  hintStyle: GoogleFonts.montserrat(
+                    fontSize: 14,
+                    color: Colors.grey[500],
+                  ),
+                  filled: true,
+                  fillColor: Colors.grey[50],
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide.none,
+                  ),
+                  contentPadding: const EdgeInsets.all(12),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => Navigator.pop(context),
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        side: BorderSide(color: Colors.grey[300]!),
+                      ),
+                      child: Text(
+                        'Cancel',
+                        style: GoogleFonts.montserrat(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.grey[700],
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: _selectedType == null
+                          ? null
+                          : () async {
+                              // Handle report submission
+                              Navigator.pop(context);
+                              
+                              // Show loading
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Row(
+                                    children: [
+                                      const SizedBox(
+                                        width: 20,
+                                        height: 20,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 12),
+                                      Text(
+                                        'Submitting report...',
+                                        style: GoogleFonts.montserrat(),
+                                      ),
+                                    ],
+                                  ),
+                                  backgroundColor: Colors.black87,
+                                  duration: const Duration(seconds: 2),
+                                ),
+                              );
+
+                              try {
+                                // Convert type to IncidentType enum
+                                IncidentType incidentType;
+                                switch (_selectedType) {
+                                  case 'Critical':
+                                    incidentType = IncidentType.critical;
+                                    break;
+                                  case 'Warning':
+                                    incidentType = IncidentType.warning;
+                                    break;
+                                  case 'Info':
+                                  default:
+                                    incidentType = IncidentType.info;
+                                }
+
+                                // Create report
+                                final report = ReportModel(
+                                  incidentType: incidentType,
+                                  latitude: widget.location.latitude,
+                                  longitude: widget.location.longitude,
+                                  description: _descriptionController.text.isEmpty
+                                      ? null
+                                      : _descriptionController.text,
+                                );
+
+                                await ApiService.createReport(report);
+
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text(
+                                      'Report submitted successfully',
+                                      style: GoogleFonts.montserrat(),
+                                    ),
+                                    backgroundColor: Colors.green,
+                                  ),
+                                );
+
+                                // Reload stats and reports after successful submission
+                                if (context.mounted) {
+                                  final situationScreenState = context.findAncestorStateOfType<_SituationScreenState>();
+                                  situationScreenState?._loadReportStats();
+                                  situationScreenState?._loadReports();
+                                }
+                              } catch (e) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text(
+                                      'Failed to submit report: $e',
+                                      style: GoogleFonts.montserrat(),
+                                    ),
+                                    backgroundColor: Colors.red,
+                                  ),
+                                );
+                              }
+                            },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.black87,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        disabledBackgroundColor: Colors.grey[300],
+                      ),
+                      child: Text(
+                        'Submit',
+                        style: GoogleFonts.montserrat(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              // Location info
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.grey[100],
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.location_on, size: 16, color: Colors.grey[700]),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Lat: ${widget.location.latitude.toStringAsFixed(6)}, Lng: ${widget.location.longitude.toStringAsFixed(6)}',
+                        style: GoogleFonts.montserrat(
+                          fontSize: 11,
+                          color: Colors.grey[700],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// Nearby reports dialog widget
+class _NearbyReportsDialog extends StatefulWidget {
+  final LatLng location;
+  final List<ReportModel> nearbyReports;
+
+  const _NearbyReportsDialog({
+    required this.location,
+    required this.nearbyReports,
+  });
+
+  @override
+  State<_NearbyReportsDialog> createState() => _NearbyReportsDialogState();
+}
+
+class _NearbyReportsDialogState extends State<_NearbyReportsDialog> {
+  Set<int> _upvotedReports = {};
+  Map<int, int> _reportUpvoteCounts = {};
+
+  @override
+  void initState() {
+    super.initState();
+    // Initialize upvote counts
+    for (var report in widget.nearbyReports) {
+      _reportUpvoteCounts[report.id!] = report.upvoteCount;
+    }
+  }
+
+  Future<void> _handleUpvote(ReportModel report) async {
+    final reportId = report.id!;
+    
+    try {
+      await ApiService.upvoteReport(reportId);
+      setState(() {
+        _upvotedReports.add(reportId);
+        _reportUpvoteCounts[reportId] = (_reportUpvoteCounts[reportId] ?? 0) + 1;
+      });
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Upvoted report successfully!',
+              style: GoogleFonts.montserrat(),
+            ),
+            backgroundColor: Colors.green,
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              e.toString().contains('already upvoted')
+                  ? 'You already upvoted this report'
+                  : 'Failed to upvote: ${e.toString()}',
+              style: GoogleFonts.montserrat(),
+            ),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _createNewReport() async {
+    Navigator.pop(context);
+    await showDialog(
+      context: context,
+      builder: (context) => _ReportIncidentModal(location: widget.location),
+    );
+  }
+
+  Color _getIncidentColor(IncidentType type) {
+    switch (type) {
+      case IncidentType.critical:
+        return const Color(0xFFFF6B6B);
+      case IncidentType.warning:
+        return Colors.orange;
+      case IncidentType.info:
+        return Colors.blue;
+    }
+  }
+
+  IconData _getIncidentIcon(IncidentType type) {
+    switch (type) {
+      case IncidentType.critical:
+        return Icons.error;
+      case IncidentType.warning:
+        return Icons.warning_amber_rounded;
+      case IncidentType.info:
+        return Icons.info;
+    }
+  }
+
+  String _getIncidentLabel(IncidentType type) {
+    switch (type) {
+      case IncidentType.critical:
+        return 'Critical';
+      case IncidentType.warning:
+        return 'Warning';
+      case IncidentType.info:
+        return 'Info';
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      backgroundColor: Colors.white,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      child: Container(
+        padding: const EdgeInsets.all(24),
+        constraints: const BoxConstraints(maxHeight: 500),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
             Row(
               children: [
                 Container(
                   padding: const EdgeInsets.all(10),
                   decoration: BoxDecoration(
-                    color: Colors.black87.withOpacity(0.1),
+                    color: Colors.orange.withOpacity(0.1),
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: const Icon(
-                    Icons.add_alert,
-                    color: Colors.black87,
+                    Icons.location_on,
+                    color: Colors.orange,
                     size: 24,
                   ),
                 ),
@@ -528,7 +1368,7 @@ class _ReportIncidentModalState extends State<_ReportIncidentModal> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Report Incident',
+                        'Nearby Reports',
                         style: GoogleFonts.montserrat(
                           fontSize: 18,
                           fontWeight: FontWeight.w700,
@@ -536,7 +1376,7 @@ class _ReportIncidentModalState extends State<_ReportIncidentModal> {
                         ),
                       ),
                       Text(
-                        'Help keep your community safe',
+                        '${widget.nearbyReports.length} report${widget.nearbyReports.length > 1 ? 's' : ''} within 100m',
                         style: GoogleFonts.montserrat(
                           fontSize: 12,
                           color: Colors.grey[600],
@@ -547,101 +1387,94 @@ class _ReportIncidentModalState extends State<_ReportIncidentModal> {
                 ),
               ],
             ),
-            const SizedBox(height: 24),
-            Text(
-              'Incident Type',
-              style: GoogleFonts.montserrat(
-                fontSize: 14,
-                fontWeight: FontWeight.w600,
-                color: Colors.black87,
-              ),
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: ['Info', 'Critical', 'Warning'].map((type) {
-                final isSelected = _selectedType == type;
-                final color = _getTypeColor(type);
-                return Expanded(
-                  child: Padding(
-                    padding: const EdgeInsets.only(right: 8),
-                    child: InkWell(
-                      onTap: () => setState(() => _selectedType = type),
+            const SizedBox(height: 16),
+            Flexible(
+              child: ListView.builder(
+                shrinkWrap: true,
+                itemCount: widget.nearbyReports.length,
+                itemBuilder: (context, index) {
+                  final report = widget.nearbyReports[index];
+                  final reportId = report.id!;
+                  final isUpvoted = _upvotedReports.contains(reportId);
+                  final upvoteCount = _reportUpvoteCounts[reportId] ?? report.upvoteCount;
+                  final color = _getIncidentColor(report.incidentType);
+                  
+                  return Container(
+                    margin: const EdgeInsets.only(bottom: 12),
+                    decoration: BoxDecoration(
+                      color: color.withOpacity(0.05),
                       borderRadius: BorderRadius.circular(12),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                        decoration: BoxDecoration(
-                          color: isSelected
-                              ? color.withOpacity(0.15)
-                              : Colors.grey[100],
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(
-                            color: isSelected ? color : Colors.transparent,
-                            width: 2,
+                      border: Border.all(color: color.withOpacity(0.3)),
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: Row(
+                        children: [
+                          Icon(
+                            _getIncidentIcon(report.incidentType),
+                            color: color,
+                            size: 24,
                           ),
-                        ),
-                        child: Column(
-                          children: [
-                            Icon(
-                              type == 'Critical'
-                                  ? Icons.error
-                                  : type == 'Warning'
-                                  ? Icons.warning_amber_rounded
-                                  : Icons.info,
-                              color: isSelected ? color : Colors.grey[600],
-                              size: 24,
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  _getIncidentLabel(report.incidentType),
+                                  style: GoogleFonts.montserrat(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w600,
+                                    color: Colors.black87,
+                                  ),
+                                ),
+                                if (report.description != null) ...[
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    report.description!,
+                                    style: GoogleFonts.montserrat(
+                                      fontSize: 12,
+                                      color: Colors.grey[600],
+                                    ),
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ],
+                              ],
                             ),
-                            const SizedBox(height: 4),
-                            Text(
-                              type,
-                              style: GoogleFonts.montserrat(
-                                fontSize: 11,
-                                fontWeight: isSelected
-                                    ? FontWeight.w600
-                                    : FontWeight.w500,
-                                color: isSelected ? color : Colors.grey[700],
+                          ),
+                          const SizedBox(width: 8),
+                          Column(
+                            children: [
+                              IconButton(
+                                onPressed: isUpvoted ? null : () => _handleUpvote(report),
+                                icon: Icon(
+                                  isUpvoted ? Icons.thumb_up : Icons.thumb_up_outlined,
+                                  color: isUpvoted ? color : Colors.grey[600],
+                                  size: 20,
+                                ),
+                                tooltip: isUpvoted ? 'Already upvoted' : 'Upvote',
                               ),
-                            ),
-                          ],
-                        ),
+                              Text(
+                                '$upvoteCount',
+                                style: GoogleFonts.montserrat(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.black87,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
                       ),
                     ),
-                  ),
-                );
-              }).toList(),
-            ),
-            const SizedBox(height: 20),
-            Text(
-              'Description (Optional)',
-              style: GoogleFonts.montserrat(
-                fontSize: 14,
-                fontWeight: FontWeight.w600,
-                color: Colors.black87,
-              ),
-            ),
-            const SizedBox(height: 8),
-            TextField(
-              controller: _descriptionController,
-              maxLines: 3,
-              style: GoogleFonts.montserrat(
-                fontSize: 14,
-                color: Colors.black87,
-              ),
-              decoration: InputDecoration(
-                hintText: 'Describe what happened...',
-                hintStyle: GoogleFonts.montserrat(
-                  fontSize: 14,
-                  color: Colors.grey[500],
-                ),
-                filled: true,
-                fillColor: Colors.grey[50],
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide.none,
-                ),
-                contentPadding: const EdgeInsets.all(12),
+                  );
+                },
               ),
             ),
             const SizedBox(height: 16),
+            const Divider(),
+            const SizedBox(height: 8),
             Row(
               children: [
                 Expanded(
@@ -667,31 +1500,16 @@ class _ReportIncidentModalState extends State<_ReportIncidentModal> {
                 const SizedBox(width: 12),
                 Expanded(
                   child: ElevatedButton(
-                    onPressed: _selectedType == null
-                        ? null
-                        : () {
-                            // Handle report submission
-                            Navigator.pop(context, _selectedType);
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text(
-                                  'Report submitted successfully',
-                                  style: GoogleFonts.montserrat(),
-                                ),
-                                backgroundColor: Colors.black87,
-                              ),
-                            );
-                          },
+                    onPressed: _createNewReport,
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.black87,
                       padding: const EdgeInsets.symmetric(vertical: 12),
+                      backgroundColor: Colors.black87,
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(12),
                       ),
-                      disabledBackgroundColor: Colors.grey[300],
                     ),
                     child: Text(
-                      'Submit',
+                      'Create New',
                       style: GoogleFonts.montserrat(
                         fontSize: 13,
                         fontWeight: FontWeight.w600,
@@ -704,8 +1522,20 @@ class _ReportIncidentModalState extends State<_ReportIncidentModal> {
             ),
           ],
         ),
-        ),
       ),
     );
   }
+}
+
+// Helper class for clustering reports
+class ReportCluster {
+  final LatLng center;
+  final List<ReportModel> reports;
+  final IncidentType incidentType;
+
+  ReportCluster({
+    required this.center,
+    required this.reports,
+    required this.incidentType,
+  });
 }
