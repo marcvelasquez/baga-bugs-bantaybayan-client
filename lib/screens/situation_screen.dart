@@ -8,6 +8,7 @@ import 'dart:ui';
 import 'dart:math' as math;
 import '../core/theme/theme_provider.dart';
 import '../services/api_service.dart';
+import '../services/cached_tile_provider.dart';
 import '../models/api_models.dart';
 
 class SituationScreen extends StatefulWidget {
@@ -364,6 +365,7 @@ class _SituationScreenState extends State<SituationScreen> {
               TileLayer(
                 urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
                 userAgentPackageName: 'com.example.baga_bugs_bantaybayan_client',
+                tileProvider: CachedTileProvider(),
               ),
               CircleLayer(
                 circles: _circles,

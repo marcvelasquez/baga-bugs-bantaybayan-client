@@ -15,6 +15,8 @@ import '../services/ml_prediction_service.dart';
 import '../services/scenario_service.dart';
 import '../services/routing_service.dart';
 import '../services/api_service.dart';
+import '../services/offline_cache_service.dart';
+import '../services/cached_tile_provider.dart';
 import '../models/api_models.dart';
 
 class MapScreen extends StatefulWidget {
@@ -30,6 +32,9 @@ class _MapScreenState extends State<MapScreen> {
   final List<Marker> _markers = [];
   final List<CircleMarker> _circles = [];
   final List<Polyline> _routeLines = [];
+  
+  // Offline cache service
+  final OfflineCacheService _cacheService = OfflineCacheService();
   
   // ML Prediction state
   FloodPrediction? _currentPrediction;
@@ -90,12 +95,49 @@ class _MapScreenState extends State<MapScreen> {
   void initState() {
     super.initState();
     _mapController = MapController();
+    _initializeCache();
     _getCurrentLocation();
     _createMarkers();
     _createFloodZones();
     _checkMLStatus();
     _initializeRouting();
     _loadWeatherForecast();
+  }
+
+  /// Initialize offline cache and pre-cache map tiles for the area
+  Future<void> _initializeCache() async {
+    await _cacheService.initialize();
+    
+    // Cache emergency locations as landmarks
+    final landmarks = _emergencyLocations.map((loc) => {
+      'name': loc.name,
+      'display_name': loc.name,
+      'latitude': loc.position.latitude,
+      'longitude': loc.position.longitude,
+      'type': loc.type.toString(),
+    }).toList();
+    
+    await _cacheService.cacheLandmarks(landmarks);
+    
+    // Pre-cache tiles for current area in background
+    _preCacheAreaTiles();
+  }
+
+  /// Pre-cache map tiles for the current area
+  Future<void> _preCacheAreaTiles() async {
+    // Pre-cache tiles for 5km radius around current location
+    // This runs in background and doesn't block UI
+    try {
+      await _cacheService.preCacheTilesForArea(
+        center: _currentLocation,
+        radiusKm: 5.0,
+        minZoom: 13,
+        maxZoom: 16,
+      );
+      debugPrint('✅ Pre-cached map tiles for current area');
+    } catch (e) {
+      debugPrint('⚠️ Failed to pre-cache tiles: $e');
+    }
   }
 
   Future<void> _loadWeatherForecast() async {
@@ -778,6 +820,37 @@ class _MapScreenState extends State<MapScreen> {
 
   Future<void> _calculateRoutes(LatLng start, LatLng end) async {
     try {
+      // Check cache first
+      final cachedRoute = await _cacheService.getCachedRoute(start, end);
+      
+      if (cachedRoute != null) {
+        debugPrint('📦 Using cached route');
+        final coordinates = cachedRoute['coordinates'] as List<LatLng>;
+        
+        _routeLines.clear();
+        _routeLines.add(
+          Polyline(
+            points: coordinates,
+            color: Colors.blue,
+            strokeWidth: 5.0,
+          ),
+        );
+        
+        setState(() {
+          _selectedRoute = RouteResult(
+            coordinates: coordinates,
+            distance: cachedRoute['distance'] as double,
+            duration: cachedRoute['duration'] as double,
+            riskLevel: 'low',
+          );
+          _isCalculatingRoute = false;
+        });
+        
+        _zoomToRoute(coordinates);
+        return;
+      }
+      
+      // Fetch from network
       final routes = await RoutingService.findAlternativeRoutes(
         start: start,
         destination: end,
@@ -795,6 +868,17 @@ class _MapScreenState extends State<MapScreen> {
         setState(() => _isCalculatingRoute = false);
         return;
       }
+
+      // Cache the primary route for offline use
+      final primaryRoute = routes[0];
+      await _cacheService.cacheRoute(
+        start: start,
+        end: end,
+        coordinates: primaryRoute.coordinates,
+        distance: primaryRoute.distance,
+        duration: primaryRoute.duration,
+      );
+      debugPrint('💾 Cached route for offline use');
 
       // Convert routes to polylines
       _routeLines.clear();
@@ -820,6 +904,46 @@ class _MapScreenState extends State<MapScreen> {
       _zoomToRoute(routes[0].coordinates);
     } catch (e) {
       print('Error calculating routes: $e');
+      
+      // Try to use cached route as fallback
+      final cachedRoute = await _cacheService.getCachedRoute(start, end);
+      if (cachedRoute != null) {
+        debugPrint('📦 Using cached route as fallback');
+        final coordinates = cachedRoute['coordinates'] as List<LatLng>;
+        
+        _routeLines.clear();
+        _routeLines.add(
+          Polyline(
+            points: coordinates,
+            color: Colors.blue,
+            strokeWidth: 5.0,
+          ),
+        );
+        
+        setState(() {
+          _selectedRoute = RouteResult(
+            coordinates: coordinates,
+            distance: cachedRoute['distance'] as double,
+            duration: cachedRoute['duration'] as double,
+            riskLevel: 'low',
+          );
+          _isCalculatingRoute = false;
+        });
+        
+        _zoomToRoute(coordinates);
+        
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Using cached route (offline mode)'),
+              backgroundColor: Colors.orange,
+              duration: Duration(seconds: 2),
+            ),
+          );
+        }
+        return;
+      }
+      
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -926,11 +1050,12 @@ class _MapScreenState extends State<MapScreen> {
               maxZoom: 18,
             ),
             children: [
-              // OSM Tile Layer
+              // OSM Tile Layer with offline caching
               TileLayer(
                 urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
                 userAgentPackageName: 'com.bagabugs.bantaybayan',
                 maxZoom: 19,
+                tileProvider: CachedTileProvider(),
               ),
               // Flood zone circles (current + forecast)
               CircleLayer(
@@ -1077,6 +1202,7 @@ class _MapScreenState extends State<MapScreen> {
                       emergencyLocations: _emergencyLocations,
                       isDarkMode: isDarkMode,
                       currentLocation: _currentLocation,
+                      cacheService: _cacheService,
                     ),
                   );
                   
@@ -1874,11 +2000,13 @@ class _SearchDialog extends StatefulWidget {
   final List<EmergencyLocation> emergencyLocations;
   final bool isDarkMode;
   final LatLng currentLocation;
+  final OfflineCacheService cacheService;
 
   const _SearchDialog({
     required this.emergencyLocations,
     required this.isDarkMode,
     required this.currentLocation,
+    required this.cacheService,
   });
 
   @override
@@ -1890,6 +2018,7 @@ class _SearchDialogState extends State<_SearchDialog> {
   List<SearchResult> _searchResults = [];
   List<EmergencyLocation> _emergencyResults = [];
   bool _isSearching = false;
+  bool _isOffline = false;
   Timer? _debounce;
 
   @override
@@ -1911,6 +2040,7 @@ class _SearchDialogState extends State<_SearchDialog> {
         _searchResults = [];
         _emergencyResults = widget.emergencyLocations;
         _isSearching = false;
+        _isOffline = false;
       });
       return;
     }
@@ -1923,6 +2053,9 @@ class _SearchDialogState extends State<_SearchDialog> {
     setState(() => _isSearching = true);
 
     try {
+      // Try to get cached results first for instant results
+      final cachedResults = await widget.cacheService.getCachedSearchResults(query);
+      
       // Search using Nominatim API (OpenStreetMap)
       final url = Uri.parse(
         'https://nominatim.openstreetmap.org/search'
@@ -1937,31 +2070,97 @@ class _SearchDialogState extends State<_SearchDialog> {
       final response = await http.get(
         url,
         headers: {'User-Agent': 'BantayBayan-App/1.0'},
-      );
+      ).timeout(const Duration(seconds: 10));
 
       if (response.statusCode == 200) {
         final List<dynamic> data = json.decode(response.body);
         
+        final results = data.map((item) {
+          return SearchResult(
+            name: item['name'] ?? item['display_name']?.split(',')[0] ?? 'Unknown',
+            displayName: item['display_name'] ?? '',
+            position: LatLng(
+              double.parse(item['lat']),
+              double.parse(item['lon']),
+            ),
+            type: item['type'] ?? item['class'] ?? 'place',
+          );
+        }).toList();
+        
+        // Cache the results for offline use
+        await widget.cacheService.cacheSearchResults(
+          query,
+          results.map((r) => {
+            'name': r.name,
+            'displayName': r.displayName,
+            'lat': r.position.latitude,
+            'lng': r.position.longitude,
+            'type': r.type,
+          }).toList(),
+        );
+        
+        // Also cache as landmarks for future offline search
+        await widget.cacheService.cacheLandmarks(
+          results.map((r) => {
+            'name': r.name,
+            'display_name': r.displayName,
+            'latitude': r.position.latitude,
+            'longitude': r.position.longitude,
+            'type': r.type,
+          }).toList(),
+        );
+        
         setState(() {
-          _searchResults = data.map((item) {
-            return SearchResult(
-              name: item['name'] ?? item['display_name']?.split(',')[0] ?? 'Unknown',
-              displayName: item['display_name'] ?? '',
-              position: LatLng(
-                double.parse(item['lat']),
-                double.parse(item['lon']),
-              ),
-              type: item['type'] ?? item['class'] ?? 'place',
-            );
-          }).toList();
+          _searchResults = results;
           _isSearching = false;
+          _isOffline = false;
         });
       } else {
-        setState(() => _isSearching = false);
+        // Use cached results if available
+        if (cachedResults != null) {
+          _useCachedResults(cachedResults);
+        } else {
+          await _searchOfflineLandmarks(query);
+        }
       }
     } catch (e) {
-      setState(() => _isSearching = false);
+      // Network error - try cached results or offline landmarks
+      final cachedResults = await widget.cacheService.getCachedSearchResults(query);
+      if (cachedResults != null) {
+        _useCachedResults(cachedResults);
+      } else {
+        await _searchOfflineLandmarks(query);
+      }
     }
+  }
+  
+  void _useCachedResults(List<Map<String, dynamic>> cachedResults) {
+    setState(() {
+      _searchResults = cachedResults.map((item) => SearchResult(
+        name: item['name'] ?? 'Unknown',
+        displayName: item['displayName'] ?? '',
+        position: LatLng(item['lat'], item['lng']),
+        type: item['type'] ?? 'place',
+      )).toList();
+      _isSearching = false;
+      _isOffline = true;
+    });
+  }
+  
+  Future<void> _searchOfflineLandmarks(String query) async {
+    // Search cached landmarks
+    final landmarks = await widget.cacheService.searchLandmarks(query);
+    
+    setState(() {
+      _searchResults = landmarks.map((item) => SearchResult(
+        name: item['name'] ?? 'Unknown',
+        displayName: item['display_name'] ?? '',
+        position: LatLng(item['latitude'], item['longitude']),
+        type: item['type'] ?? 'place',
+      )).toList();
+      _isSearching = false;
+      _isOffline = true;
+    });
   }
 
   void _onSearchChanged(String query) {
@@ -2036,6 +2235,33 @@ class _SearchDialogState extends State<_SearchDialog> {
               ),
               onChanged: _onSearchChanged,
             ),
+            
+            // Offline indicator
+            if (_isOffline) ...[
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: Colors.orange.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.orange.withOpacity(0.3)),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.cloud_off, size: 14, color: Colors.orange[700]),
+                    const SizedBox(width: 6),
+                    Text(
+                      'Showing cached results (offline)',
+                      style: GoogleFonts.montserrat(
+                        fontSize: 11,
+                        color: Colors.orange[700],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
             const SizedBox(height: 16),
             
             // Emergency locations section
