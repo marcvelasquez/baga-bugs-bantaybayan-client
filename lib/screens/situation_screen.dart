@@ -78,29 +78,35 @@ class _SituationScreenState extends State<SituationScreen> {
 
   void _updateReportMarkers() {
     debugPrint('🗺️ Updating report markers for ${_allReports.length} reports');
-    
+
     // Clear existing report markers/circles but keep user pin
     _markers.removeWhere((marker) => marker.markerId.value != 'user_pin');
     _circles.clear();
 
     // Cluster reports by proximity
     final clusters = _clusterReports(_allReports);
-    
+
     debugPrint('📍 Created ${clusters.length} clusters');
 
     // Create markers and circles for each cluster
     for (var cluster in clusters) {
       final opacity = _calculateOpacity(cluster.reports.length);
       final color = _getColorForType(cluster.incidentType);
-      
-      debugPrint('  Cluster at ${cluster.center.latitude}, ${cluster.center.longitude}: ${cluster.reports.length} reports, opacity: $opacity');
-      
+
+      debugPrint(
+        '  Cluster at ${cluster.center.latitude}, ${cluster.center.longitude}: ${cluster.reports.length} reports, opacity: $opacity',
+      );
+
       // Add circle for affected area
       _circles.add(
         Circle(
-          circleId: CircleId('cluster_${cluster.center.latitude}_${cluster.center.longitude}'),
+          circleId: CircleId(
+            'cluster_${cluster.center.latitude}_${cluster.center.longitude}',
+          ),
           center: cluster.center,
-          radius: 100 + (cluster.reports.length * 50.0), // Larger radius for more reports
+          radius:
+              100 +
+              (cluster.reports.length * 50.0), // Larger radius for more reports
           fillColor: color.withOpacity(opacity * 0.3),
           strokeColor: color.withOpacity(opacity),
           strokeWidth: 2,
@@ -110,19 +116,26 @@ class _SituationScreenState extends State<SituationScreen> {
       // Add marker
       _markers.add(
         Marker(
-          markerId: MarkerId('cluster_${cluster.center.latitude}_${cluster.center.longitude}'),
+          markerId: MarkerId(
+            'cluster_${cluster.center.latitude}_${cluster.center.longitude}',
+          ),
           position: cluster.center,
           alpha: opacity,
-          icon: BitmapDescriptor.defaultMarkerWithHue(_getMarkerHue(cluster.incidentType)),
+          icon: BitmapDescriptor.defaultMarkerWithHue(
+            _getMarkerHue(cluster.incidentType),
+          ),
           infoWindow: InfoWindow(
             title: '${cluster.incidentType.name.toUpperCase()} Reports',
-            snippet: '${cluster.reports.length} report${cluster.reports.length > 1 ? 's' : ''}',
+            snippet:
+                '${cluster.reports.length} report${cluster.reports.length > 1 ? 's' : ''}',
           ),
         ),
       );
     }
-    
-    debugPrint('✅ Added ${_markers.length} markers and ${_circles.length} circles to map');
+
+    debugPrint(
+      '✅ Added ${_markers.length} markers and ${_circles.length} circles to map',
+    );
 
     setState(() {});
   }
@@ -143,7 +156,7 @@ class _SituationScreenState extends State<SituationScreen> {
       // Find nearby reports of the same type
       for (var j = i + 1; j < reports.length; j++) {
         if (processed.contains(j)) continue;
-        
+
         final report = reports[j];
         final distance = _calculateDistance(
           centerReport.latitude,
@@ -153,30 +166,47 @@ class _SituationScreenState extends State<SituationScreen> {
         );
 
         // Cluster if within 500 meters and same type
-        if (distance < 500 && report.incidentType == centerReport.incidentType) {
+        if (distance < 500 &&
+            report.incidentType == centerReport.incidentType) {
           clusterReports.add(report);
           processed.add(j);
         }
       }
 
       // Calculate cluster center
-      final avgLat = clusterReports.map((r) => r.latitude).reduce((a, b) => a + b) / clusterReports.length;
-      final avgLng = clusterReports.map((r) => r.longitude).reduce((a, b) => a + b) / clusterReports.length;
+      final avgLat =
+          clusterReports.map((r) => r.latitude).reduce((a, b) => a + b) /
+          clusterReports.length;
+      final avgLng =
+          clusterReports.map((r) => r.longitude).reduce((a, b) => a + b) /
+          clusterReports.length;
 
-      clusters.add(ReportCluster(
-        center: LatLng(avgLat, avgLng),
-        reports: clusterReports,
-        incidentType: centerReport.incidentType,
-      ));
+      clusters.add(
+        ReportCluster(
+          center: LatLng(avgLat, avgLng),
+          reports: clusterReports,
+          incidentType: centerReport.incidentType,
+        ),
+      );
     }
 
     return clusters;
   }
 
-  double _calculateDistance(double lat1, double lon1, double lat2, double lon2) {
+  double _calculateDistance(
+    double lat1,
+    double lon1,
+    double lat2,
+    double lon2,
+  ) {
     const p = 0.017453292519943295; // Math.PI / 180
-    final a = 0.5 - math.cos((lat2 - lat1) * p) / 2 +
-        math.cos(lat1 * p) * math.cos(lat2 * p) * (1 - math.cos((lon2 - lon1) * p)) / 2;
+    final a =
+        0.5 -
+        math.cos((lat2 - lat1) * p) / 2 +
+        math.cos(lat1 * p) *
+            math.cos(lat2 * p) *
+            (1 - math.cos((lon2 - lon1) * p)) /
+            2;
     return 12742000 * math.asin(math.sqrt(a)); // 2 * R * asin... (in meters)
   }
 
@@ -432,14 +462,17 @@ class _SituationScreenState extends State<SituationScreen> {
                               child: Row(
                                 children: [
                                   Icon(
-                                    _getWeatherIcon(_currentWeather!.weatherCode),
+                                    _getWeatherIcon(
+                                      _currentWeather!.weatherCode,
+                                    ),
                                     color: Colors.blue,
                                     size: 40,
                                   ),
                                   const SizedBox(width: 12),
                                   Expanded(
                                     child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
                                       children: [
                                         Text(
                                           '${_currentWeather!.temperature.toStringAsFixed(1)}°C',
@@ -535,7 +568,10 @@ class _SituationScreenState extends State<SituationScreen> {
                                           height: 12,
                                           child: CircularProgressIndicator(
                                             strokeWidth: 2,
-                                            valueColor: AlwaysStoppedAnimation<Color>(Colors.grey[400]!),
+                                            valueColor:
+                                                AlwaysStoppedAnimation<Color>(
+                                                  Colors.grey[400]!,
+                                                ),
                                           ),
                                         )
                                       else
@@ -577,7 +613,8 @@ class _SituationScreenState extends State<SituationScreen> {
                                         flex: 1,
                                         child: _StatBox(
                                           label: 'Critical',
-                                          count: _reportStats?.criticalCount ?? 0,
+                                          count:
+                                              _reportStats?.criticalCount ?? 0,
                                           color: Color(0xFFFF6B6B),
                                         ),
                                       ),
@@ -586,7 +623,8 @@ class _SituationScreenState extends State<SituationScreen> {
                                         flex: 1,
                                         child: _StatBox(
                                           label: 'Warning',
-                                          count: _reportStats?.warningCount ?? 0,
+                                          count:
+                                              _reportStats?.warningCount ?? 0,
                                           color: Colors.orange,
                                         ),
                                       ),
@@ -729,7 +767,9 @@ class _ReportButtonState extends State<_ReportButton> {
   }
 
   Future<void> _checkNearbyReports() async {
-    debugPrint('🔍 Checking for nearby reports at (${widget.location.latitude}, ${widget.location.longitude})');
+    debugPrint(
+      '🔍 Checking for nearby reports at (${widget.location.latitude}, ${widget.location.longitude})',
+    );
     setState(() => _isCheckingNearby = true);
     try {
       final nearby = await ApiService.getNearbyReports(
@@ -1095,7 +1135,7 @@ class _ReportIncidentModalState extends State<_ReportIncidentModal> {
                           : () async {
                               // Handle report submission
                               Navigator.pop(context);
-                              
+
                               // Show loading
                               ScaffoldMessenger.of(context).showSnackBar(
                                 SnackBar(
@@ -1106,7 +1146,10 @@ class _ReportIncidentModalState extends State<_ReportIncidentModal> {
                                         height: 20,
                                         child: CircularProgressIndicator(
                                           strokeWidth: 2,
-                                          valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                                          valueColor:
+                                              AlwaysStoppedAnimation<Color>(
+                                                Colors.white,
+                                              ),
                                         ),
                                       ),
                                       const SizedBox(width: 12),
@@ -1141,7 +1184,8 @@ class _ReportIncidentModalState extends State<_ReportIncidentModal> {
                                   incidentType: incidentType,
                                   latitude: widget.location.latitude,
                                   longitude: widget.location.longitude,
-                                  description: _descriptionController.text.isEmpty
+                                  description:
+                                      _descriptionController.text.isEmpty
                                       ? null
                                       : _descriptionController.text,
                                 );
@@ -1160,7 +1204,10 @@ class _ReportIncidentModalState extends State<_ReportIncidentModal> {
 
                                 // Reload stats and reports after successful submission
                                 if (context.mounted) {
-                                  final situationScreenState = context.findAncestorStateOfType<_SituationScreenState>();
+                                  final situationScreenState = context
+                                      .findAncestorStateOfType<
+                                        _SituationScreenState
+                                      >();
                                   situationScreenState?._loadReportStats();
                                   situationScreenState?._loadReports();
                                 }
@@ -1243,8 +1290,8 @@ class _NearbyReportsDialog extends StatefulWidget {
 }
 
 class _NearbyReportsDialogState extends State<_NearbyReportsDialog> {
-  Set<int> _upvotedReports = {};
-  Map<int, int> _reportUpvoteCounts = {};
+  final Set<int> _upvotedReports = {};
+  final Map<int, int> _reportUpvoteCounts = {};
 
   @override
   void initState() {
@@ -1257,14 +1304,15 @@ class _NearbyReportsDialogState extends State<_NearbyReportsDialog> {
 
   Future<void> _handleUpvote(ReportModel report) async {
     final reportId = report.id!;
-    
+
     try {
       await ApiService.upvoteReport(reportId);
       setState(() {
         _upvotedReports.add(reportId);
-        _reportUpvoteCounts[reportId] = (_reportUpvoteCounts[reportId] ?? 0) + 1;
+        _reportUpvoteCounts[reportId] =
+            (_reportUpvoteCounts[reportId] ?? 0) + 1;
       });
-      
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -1396,9 +1444,10 @@ class _NearbyReportsDialogState extends State<_NearbyReportsDialog> {
                   final report = widget.nearbyReports[index];
                   final reportId = report.id!;
                   final isUpvoted = _upvotedReports.contains(reportId);
-                  final upvoteCount = _reportUpvoteCounts[reportId] ?? report.upvoteCount;
+                  final upvoteCount =
+                      _reportUpvoteCounts[reportId] ?? report.upvoteCount;
                   final color = _getIncidentColor(report.incidentType);
-                  
+
                   return Container(
                     margin: const EdgeInsets.only(bottom: 12),
                     decoration: BoxDecoration(
@@ -1447,13 +1496,19 @@ class _NearbyReportsDialogState extends State<_NearbyReportsDialog> {
                           Column(
                             children: [
                               IconButton(
-                                onPressed: isUpvoted ? null : () => _handleUpvote(report),
+                                onPressed: isUpvoted
+                                    ? null
+                                    : () => _handleUpvote(report),
                                 icon: Icon(
-                                  isUpvoted ? Icons.thumb_up : Icons.thumb_up_outlined,
+                                  isUpvoted
+                                      ? Icons.thumb_up
+                                      : Icons.thumb_up_outlined,
                                   color: isUpvoted ? color : Colors.grey[600],
                                   size: 20,
                                 ),
-                                tooltip: isUpvoted ? 'Already upvoted' : 'Upvote',
+                                tooltip: isUpvoted
+                                    ? 'Already upvoted'
+                                    : 'Upvote',
                               ),
                               Text(
                                 '$upvoteCount',
