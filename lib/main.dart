@@ -52,7 +52,7 @@ class BantayBayanApp extends StatelessWidget {
       theme: AppTheme.lightTheme,
       darkTheme: AppTheme.darkTheme,
       themeMode: themeProvider.themeMode,
-      home: const LoginScreen(), // Start on dashboard for now
+      home: const HomePage(), // Start on dashboard for now
       routes: {
         '/home': (context) => const HomePage(),
         '/login': (context) => const LoginScreen(),

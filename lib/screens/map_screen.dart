@@ -7,6 +7,10 @@ import '../core/theme/colors.dart';
 import '../core/theme/theme_provider.dart';
 import '../widgets/sos_confirmation_modal.dart';
 import '../widgets/profile_dropdown.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:another_telephony/telephony.dart';
+
+final Telephony telephony = Telephony.instance;
 
 class MapScreen extends StatefulWidget {
   const MapScreen({super.key});
@@ -20,7 +24,7 @@ class _MapScreenState extends State<MapScreen> {
   bool _isSOSActive = false;
   final Set<Marker> _markers = {};
   final Set<Circle> _circles = {};
-  
+
   // Default location (Manila, Philippines)
   static const LatLng _defaultLocation = LatLng(14.5995, 120.9842);
   LatLng _currentLocation = _defaultLocation;
@@ -93,11 +97,26 @@ class _MapScreenState extends State<MapScreen> {
       setState(() {
         _currentLocation = LatLng(position.latitude, position.longitude);
       });
-      _mapController?.animateCamera(
-        CameraUpdate.newLatLng(_currentLocation),
-      );
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setDouble('user_latitude', position.latitude);
+      await prefs.setDouble('user_longitude', position.longitude);
+      _mapController?.animateCamera(CameraUpdate.newLatLng(_currentLocation));
     } catch (e) {
       // Use default location if getting current location fails
+    }
+  }
+
+  void _sendSOS(String phone, String message) async {
+    bool? permissionsGranted = await telephony.requestSmsPermissions;
+    if (permissionsGranted ?? false) {
+      try {
+        await telephony.sendSms(to: phone, message: message);
+        print('SOS SMS sent to $phone!');
+      } catch (e) {
+        print('Failed to send SMS: $e');
+      }
+    } else {
+      print('SMS permission denied');
     }
   }
 
@@ -163,10 +182,19 @@ class _MapScreenState extends State<MapScreen> {
     }
   }
 
-  void _onSOSConfirmed() {
+  void _onSOSConfirmed() async {
     setState(() {
       _isSOSActive = true;
     });
+
+    // Use _currentLocation directly
+    final lat = _currentLocation.latitude;
+    final lng = _currentLocation.longitude;
+
+    // Optionally get phone number from SharedPreferences
+    String phone = "09925377030";
+    String message = 'ENAV|SOS|$lat|$lng|$phone|flood|.5';
+    _sendSOS(phone, message);
   }
 
   @override
