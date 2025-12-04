@@ -16,6 +16,7 @@ class _HandbookScreenState extends State<HandbookScreen> {
   String? _errorMessage;
   HandbookResponse? _handbookData;
   WeatherModel? _currentWeather;
+  WeatherForecast? _weatherForecast;
   final Map<String, bool> _checkedItems = {};
 
   @override
@@ -42,8 +43,16 @@ class _HandbookScreenState extends State<HandbookScreen> {
         longitude: position.longitude,
       );
 
+      // Get weather forecast
+      final forecast = await ApiService.getWeatherForecast(
+        latitude: position.latitude,
+        longitude: position.longitude,
+        days: 7,
+      );
+
       setState(() {
         _currentWeather = weather;
+        _weatherForecast = forecast;
       });
 
       // Generate handbook based on weather
@@ -151,6 +160,316 @@ class _HandbookScreenState extends State<HandbookScreen> {
     }
   }
 
+  // Storm detection based on weather codes
+  // Weather codes 95-99 are thunderstorms, 61-67 are rain, 71-77 are snow
+  bool _isStormyWeather(int weatherCode) {
+    return weatherCode >= 95 || // Thunderstorms
+        (weatherCode >= 80 && weatherCode <= 82) || // Rain showers
+        (weatherCode >= 61 && weatherCode <= 67); // Rain
+  }
+
+  bool _hasStormWarning() {
+    if (_weatherForecast == null) return false;
+    return _weatherForecast!.forecast.any((day) => 
+      _isStormyWeather(day.weatherCode) || 
+      day.precipitation > 20 || 
+      day.windSpeedMax > 50
+    );
+  }
+
+  List<WeatherForecastDay> _getStormDays() {
+    if (_weatherForecast == null) return [];
+    return _weatherForecast!.forecast.where((day) => 
+      _isStormyWeather(day.weatherCode) || 
+      day.precipitation > 20 || 
+      day.windSpeedMax > 50
+    ).toList();
+  }
+
+  String _getWeatherIcon(int weatherCode) {
+    if (weatherCode >= 95) return '⛈️'; // Thunderstorm
+    if (weatherCode >= 80) return '🌧️'; // Rain showers
+    if (weatherCode >= 71) return '🌨️'; // Snow
+    if (weatherCode >= 61) return '🌧️'; // Rain
+    if (weatherCode >= 51) return '🌦️'; // Drizzle
+    if (weatherCode >= 45) return '🌫️'; // Fog
+    if (weatherCode >= 3) return '☁️'; // Cloudy
+    if (weatherCode >= 1) return '⛅'; // Partly cloudy
+    return '☀️'; // Clear
+  }
+
+  Color _getWeatherSeverityColor(WeatherForecastDay day) {
+    if (day.weatherCode >= 95 || day.windSpeedMax > 80) return Colors.red;
+    if (day.precipitation > 30 || day.windSpeedMax > 50) return Colors.orange;
+    if (day.precipitation > 10) return Colors.yellow[700]!;
+    return Colors.green;
+  }
+
+  Widget _buildForecastSection() {
+    return Card(
+      elevation: 4,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.calendar_today, color: Colors.blue[700], size: 24),
+                const SizedBox(width: 8),
+                Text(
+                  '7-Day Weather Forecast',
+                  style: GoogleFonts.montserrat(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            SizedBox(
+              height: 140,
+              child: ListView.builder(
+                scrollDirection: Axis.horizontal,
+                itemCount: _weatherForecast!.forecast.length,
+                itemBuilder: (context, index) {
+                  final day = _weatherForecast!.forecast[index];
+                  final date = DateTime.parse(day.date);
+                  final dayName = index == 0 
+                      ? 'Today' 
+                      : index == 1 
+                          ? 'Tomorrow'
+                          : _getDayName(date.weekday);
+                  final isStormDay = _isStormyWeather(day.weatherCode) || 
+                                    day.precipitation > 20 || 
+                                    day.windSpeedMax > 50;
+                  
+                  return Container(
+                    width: 90,
+                    margin: const EdgeInsets.only(right: 12),
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: isStormDay 
+                          ? Colors.red.withValues(alpha: 0.1)
+                          : Colors.blue.withValues(alpha: 0.05),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: isStormDay ? Colors.red : Colors.blue.withValues(alpha: 0.2),
+                        width: isStormDay ? 2 : 1,
+                      ),
+                    ),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(
+                          dayName,
+                          style: GoogleFonts.montserrat(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: isStormDay ? Colors.red[700] : Colors.black87,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          _getWeatherIcon(day.weatherCode),
+                          style: const TextStyle(fontSize: 28),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          '${day.temperatureMax.toStringAsFixed(0)}°',
+                          style: GoogleFonts.montserrat(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        Text(
+                          '${day.temperatureMin.toStringAsFixed(0)}°',
+                          style: GoogleFonts.montserrat(
+                            fontSize: 12,
+                            color: Colors.grey[600],
+                          ),
+                        ),
+                        if (day.precipitation > 0)
+                          Text(
+                            '${day.precipitation.toStringAsFixed(0)}mm',
+                            style: GoogleFonts.montserrat(
+                              fontSize: 10,
+                              color: Colors.blue[700],
+                            ),
+                          ),
+                      ],
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _getDayName(int weekday) {
+    switch (weekday) {
+      case 1: return 'Mon';
+      case 2: return 'Tue';
+      case 3: return 'Wed';
+      case 4: return 'Thu';
+      case 5: return 'Fri';
+      case 6: return 'Sat';
+      case 7: return 'Sun';
+      default: return '';
+    }
+  }
+
+  Widget _buildStormAlertCard() {
+    final stormDays = _getStormDays();
+    if (stormDays.isEmpty) return const SizedBox.shrink();
+
+    return Column(
+      children: [
+        const SizedBox(height: 16),
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [Colors.red[700]!, Colors.orange[700]!],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            borderRadius: BorderRadius.circular(12),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.red.withValues(alpha: 0.3),
+                blurRadius: 8,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  const Icon(Icons.warning_amber_rounded, color: Colors.white, size: 28),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      '⚠️ STORM ALERT',
+                      style: GoogleFonts.montserrat(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'Severe weather expected in your area:',
+                style: GoogleFonts.montserrat(
+                  fontSize: 14,
+                  color: Colors.white.withValues(alpha: 0.9),
+                ),
+              ),
+              const SizedBox(height: 12),
+              ...stormDays.map((day) {
+                final date = DateTime.parse(day.date);
+                final dateStr = '${_getDayName(date.weekday)}, ${date.day}/${date.month}';
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Row(
+                      children: [
+                        Text(
+                          _getWeatherIcon(day.weatherCode),
+                          style: const TextStyle(fontSize: 24),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                dateStr,
+                                style: GoogleFonts.montserrat(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.white,
+                                ),
+                              ),
+                              Text(
+                                day.description,
+                                style: GoogleFonts.montserrat(
+                                  fontSize: 12,
+                                  color: Colors.white.withValues(alpha: 0.9),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: [
+                            if (day.precipitation > 0)
+                              Text(
+                                '💧 ${day.precipitation.toStringAsFixed(0)}mm',
+                                style: GoogleFonts.montserrat(
+                                  fontSize: 12,
+                                  color: Colors.white,
+                                ),
+                              ),
+                            if (day.windSpeedMax > 30)
+                              Text(
+                                '💨 ${day.windSpeedMax.toStringAsFixed(0)}km/h',
+                                style: GoogleFonts.montserrat(
+                                  fontSize: 12,
+                                  color: Colors.white,
+                                ),
+                              ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              }),
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.2),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.location_on, color: Colors.white, size: 20),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Areas that may be affected: Your current location and surrounding barangays within 10km radius',
+                        style: GoogleFonts.montserrat(
+                          fontSize: 12,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final checkedCount = _checkedItems.values.where((v) => v).length;
@@ -178,7 +497,7 @@ class _HandbookScreenState extends State<HandbookScreen> {
             ),
           IconButton(
             icon: const Icon(Icons.refresh),
-            onPressed: _isLoading ? null : _loadHandbook,
+            onPressed: _isLoading ? null : () => _loadHandbook(),
             tooltip: 'Refresh tips',
           ),
         ],
@@ -195,7 +514,7 @@ class _HandbookScreenState extends State<HandbookScreen> {
                       Text(_errorMessage!, textAlign: TextAlign.center),
                       const SizedBox(height: 16),
                       ElevatedButton(
-                        onPressed: _loadHandbook,
+                        onPressed: () => _loadHandbook(),
                         child: const Text('Retry'),
                       ),
                     ],
@@ -242,7 +561,7 @@ class _HandbookScreenState extends State<HandbookScreen> {
                             ),
                           ),
                         ),
-                        const SizedBox(height: 24),
+                        const SizedBox(height: 32),
                       ],
 
                       // Weather Summary Card
@@ -312,7 +631,17 @@ class _HandbookScreenState extends State<HandbookScreen> {
                           ),
                         ),
 
-                      const SizedBox(height: 16),
+                      // Weather Forecast Section
+                      if (_weatherForecast != null) ...[                        
+                        const SizedBox(height: 24),
+                        _buildForecastSection(),
+                      ],
+
+                      // Storm Alert Section
+                      if (_weatherForecast != null && _hasStormWarning())
+                        _buildStormAlertCard(),
+
+                      const SizedBox(height: 24),
 
                       // Flood Risk Level Badge
                       if (_handbookData?.floodRiskLevel != null)
@@ -360,7 +689,7 @@ class _HandbookScreenState extends State<HandbookScreen> {
                           ),
                         ),
 
-                      const SizedBox(height: 24),
+                      const SizedBox(height: 32),
 
                       // Error message banner (if any)
                       if (_errorMessage != null)
@@ -380,6 +709,8 @@ class _HandbookScreenState extends State<HandbookScreen> {
                             ],
                           ),
                         ),
+
+                      const SizedBox(height: 8),
 
                       // Safety Tips Header
                       Row(
@@ -429,10 +760,10 @@ class _HandbookScreenState extends State<HandbookScreen> {
                           fontSize: 14,
                         ),
                       ),
-                      const SizedBox(height: 16),
+                      const SizedBox(height: 24),
 
                       // Safety Tips List as Checkboxes
-                      if (_handbookData?.safetyTips != null)
+                      if (_handbookData?.safetyTips != null && _handbookData!.safetyTips.isNotEmpty)
                         ...(_handbookData!.safetyTips.asMap().entries.map((entry) {
                           final index = entry.key;
                           final tip = entry.value;
@@ -450,8 +781,9 @@ class _HandbookScreenState extends State<HandbookScreen> {
                             priorityColor: _getPriorityColor(tip.priority),
                             priorityIcon: _getPriorityIcon(tip.priority),
                           );
-                        }))
-                      else
+                        }).toList()),
+
+                      if (_handbookData?.safetyTips == null || _handbookData!.safetyTips.isEmpty)
                         const Center(
                           child: Padding(
                             padding: EdgeInsets.all(32),
@@ -546,7 +878,7 @@ class _ChecklistTipCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Card(
-      margin: const EdgeInsets.only(bottom: 12),
+      margin: const EdgeInsets.only(bottom: 16),
       elevation: 2,
       color: isChecked ? Colors.green[50] : Colors.white,
       child: InkWell(
@@ -563,7 +895,7 @@ class _ChecklistTipCard extends StatelessWidget {
             ),
           ),
           child: Padding(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.all(20),
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -579,7 +911,7 @@ class _ChecklistTipCard extends StatelessWidget {
                     ),
                   ),
                 ),
-                const SizedBox(width: 12),
+                const SizedBox(width: 16),
                 // Content
                 Expanded(
                   child: Column(
@@ -644,7 +976,7 @@ class _ChecklistTipCard extends StatelessWidget {
                           ),
                         ],
                       ),
-                      const SizedBox(height: 8),
+                      const SizedBox(height: 12),
                       Text(
                         tip.title,
                         style: GoogleFonts.montserrat(
@@ -654,7 +986,7 @@ class _ChecklistTipCard extends StatelessWidget {
                           color: isChecked ? Colors.grey[600] : Colors.black87,
                         ),
                       ),
-                      const SizedBox(height: 6),
+                      const SizedBox(height: 8),
                       Text(
                         tip.description,
                         style: GoogleFonts.montserrat(

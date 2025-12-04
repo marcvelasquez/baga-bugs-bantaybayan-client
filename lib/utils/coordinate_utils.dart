@@ -1,5 +1,5 @@
 import 'dart:math';
-import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:latlong2/latlong.dart';
 
 /// Utility functions for coordinate transformations and calculations
 class CoordinateUtils {
@@ -165,6 +165,8 @@ class CoordinateUtils {
   }
 
   /// Create a bounding box around a point with given radius (in meters)
+  /// Note: LatLngBounds not available in latlong2, use flutter_map's LatLngBounds if needed
+  /*
   static LatLngBounds createBoundingBox(LatLng center, double radiusMeters) {
     // Calculate approximate degrees offset
     final latOffset = radiusMeters / 111320; // ~111.32 km per degree latitude
@@ -182,6 +184,7 @@ class CoordinateUtils {
 
     return LatLngBounds(southwest: southwest, northeast: northeast);
   }
+  */
 
   /// Interpolate between two coordinates
   static LatLng interpolate(LatLng start, LatLng end, double fraction) {

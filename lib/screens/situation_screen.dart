@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:latlong2/latlong.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:flutter_map/flutter_map.dart';
 import 'dart:ui';
 import 'dart:math' as math;
 import '../core/theme/theme_provider.dart';
@@ -17,9 +18,9 @@ class SituationScreen extends StatefulWidget {
 }
 
 class _SituationScreenState extends State<SituationScreen> {
-  GoogleMapController? _mapController;
-  final Set<Marker> _markers = {};
-  final Set<Circle> _circles = {};
+  MapController? _mapController;
+  final List<Marker> _markers = [];
+  final List<CircleMarker> _circles = [];
   LatLng? _userPinLocation;
   ReportStats? _reportStats;
   bool _isLoadingStats = false;
@@ -33,6 +34,7 @@ class _SituationScreenState extends State<SituationScreen> {
   @override
   void initState() {
     super.initState();
+    _mapController = MapController();
     _getCurrentLocation();
     _loadReportStats();
     _loadReports();
@@ -80,7 +82,7 @@ class _SituationScreenState extends State<SituationScreen> {
     debugPrint('🗺️ Updating report markers for ${_allReports.length} reports');
 
     // Clear existing report markers/circles but keep user pin
-    _markers.removeWhere((marker) => marker.markerId.value != 'user_pin');
+    _markers.removeWhere((marker) => !(marker.point == _userPinLocation && _userPinLocation != null));
     _circles.clear();
 
     // Cluster reports by proximity
@@ -99,35 +101,31 @@ class _SituationScreenState extends State<SituationScreen> {
 
       // Add circle for affected area
       _circles.add(
-        Circle(
-          circleId: CircleId(
-            'cluster_${cluster.center.latitude}_${cluster.center.longitude}',
-          ),
-          center: cluster.center,
+        CircleMarker(
+          point: cluster.center,
           radius:
               100 +
               (cluster.reports.length * 50.0), // Larger radius for more reports
-          fillColor: color.withOpacity(opacity * 0.3),
-          strokeColor: color.withOpacity(opacity),
-          strokeWidth: 2,
+          useRadiusInMeter: true,
+          color: color.withOpacity(opacity * 0.3),
+          borderColor: color.withOpacity(opacity),
+          borderStrokeWidth: 2,
         ),
       );
 
       // Add marker
       _markers.add(
         Marker(
-          markerId: MarkerId(
-            'cluster_${cluster.center.latitude}_${cluster.center.longitude}',
-          ),
-          position: cluster.center,
-          alpha: opacity,
-          icon: BitmapDescriptor.defaultMarkerWithHue(
-            _getMarkerHue(cluster.incidentType),
-          ),
-          infoWindow: InfoWindow(
-            title: '${cluster.incidentType.name.toUpperCase()} Reports',
-            snippet:
-                '${cluster.reports.length} report${cluster.reports.length > 1 ? 's' : ''}',
+          point: cluster.center,
+          width: 40,
+          height: 40,
+          child: Opacity(
+            opacity: opacity,
+            child: Icon(
+              Icons.location_on,
+              color: color,
+              size: 40,
+            ),
           ),
         ),
       );
@@ -217,23 +215,12 @@ class _SituationScreenState extends State<SituationScreen> {
 
   Color _getColorForType(IncidentType type) {
     switch (type) {
-      case IncidentType.critical:
-        return const Color(0xFFFF6B6B);
-      case IncidentType.warning:
-        return Colors.orange;
-      case IncidentType.info:
-        return Colors.blue;
-    }
-  }
-
-  double _getMarkerHue(IncidentType type) {
-    switch (type) {
-      case IncidentType.critical:
-        return BitmapDescriptor.hueRed;
-      case IncidentType.warning:
-        return BitmapDescriptor.hueOrange;
-      case IncidentType.info:
-        return BitmapDescriptor.hueAzure;
+      case IncidentType.flood:
+        return const Color(0xFF2196F3); // Blue for flood
+      case IncidentType.evacuationCenter:
+        return const Color(0xFFFF9800); // Orange for evacuation
+      case IncidentType.emergencyServices:
+        return const Color(0xFFFF6B6B); // Red for emergency
     }
   }
 
@@ -290,7 +277,7 @@ class _SituationScreenState extends State<SituationScreen> {
       setState(() {
         _currentLocation = LatLng(position.latitude, position.longitude);
       });
-      _mapController?.animateCamera(CameraUpdate.newLatLng(_currentLocation));
+      _mapController?.move(_currentLocation, 14);
     } catch (e) {
       // Use default location if getting current location fails
     }
@@ -298,25 +285,27 @@ class _SituationScreenState extends State<SituationScreen> {
 
   void _recenterMap() {
     if (_mapController != null) {
-      _mapController!.animateCamera(
-        CameraUpdate.newLatLngZoom(_currentLocation, 14),
-      );
+      _mapController!.move(_currentLocation, 14);
     }
   }
 
-  void _onMapTapped(LatLng position) {
+  void _onMapTapped(TapPosition tapPosition, LatLng position) {
     setState(() {
       // Remove previous pin if exists
-      _markers.removeWhere((marker) => marker.markerId.value == 'user_pin');
+      _markers.removeWhere((marker) => marker.point == _userPinLocation);
 
       // Add new pin
       _userPinLocation = position;
       _markers.add(
         Marker(
-          markerId: const MarkerId('user_pin'),
-          position: position,
-          icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
-          infoWindow: const InfoWindow(title: 'Report Location'),
+          point: position,
+          width: 40,
+          height: 40,
+          child: const Icon(
+            Icons.location_on,
+            color: Colors.red,
+            size: 40,
+          ),
         ),
       );
     });
@@ -359,47 +348,30 @@ class _SituationScreenState extends State<SituationScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final themeProvider = Provider.of<ThemeProvider>(context);
-    final isDarkMode = themeProvider.isDarkMode;
-
     return Scaffold(
       backgroundColor: Colors.white,
       body: Stack(
         children: [
-          // Google Maps
-          GoogleMap(
-            initialCameraPosition: CameraPosition(
-              target: _defaultLocation,
-              zoom: 14,
+          // OpenStreetMap with flutter_map
+          FlutterMap(
+            mapController: _mapController,
+            options: MapOptions(
+              initialCenter: _defaultLocation,
+              initialZoom: 14,
+              onTap: _onMapTapped,
             ),
-            onMapCreated: (GoogleMapController controller) {
-              _mapController = controller;
-              if (isDarkMode) {
-                controller.setMapStyle('''
-                  [
-                    {
-                      "elementType": "geometry",
-                      "stylers": [{"color": "#242f3e"}]
-                    },
-                    {
-                      "elementType": "labels.text.fill",
-                      "stylers": [{"color": "#746855"}]
-                    },
-                    {
-                      "elementType": "labels.text.stroke",
-                      "stylers": [{"color": "#242f3e"}]
-                    }
-                  ]
-                ''');
-              }
-            },
-            markers: _markers,
-            circles: _circles,
-            onTap: _onMapTapped,
-            myLocationEnabled: true,
-            myLocationButtonEnabled: false,
-            zoomControlsEnabled: false,
-            mapToolbarEnabled: false,
+            children: [
+              TileLayer(
+                urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                userAgentPackageName: 'com.example.baga_bugs_bantaybayan_client',
+              ),
+              CircleLayer(
+                circles: _circles,
+              ),
+              MarkerLayer(
+                markers: _markers,
+              ),
+            ],
           ),
 
           // Fixed UI overlay
@@ -657,6 +629,7 @@ class _SituationScreenState extends State<SituationScreen> {
             right: 16,
             top: 80,
             child: FloatingActionButton(
+              heroTag: 'situation_reload_btn',
               onPressed: () {
                 debugPrint('🔄 Manual reload triggered');
                 _loadReports();
@@ -673,6 +646,7 @@ class _SituationScreenState extends State<SituationScreen> {
             right: 16,
             bottom: 20,
             child: FloatingActionButton(
+              heroTag: 'situation_recenter_btn',
               onPressed: _recenterMap,
               backgroundColor: Colors.white,
               mini: true,
@@ -948,12 +922,12 @@ class _ReportIncidentModalState extends State<_ReportIncidentModal> {
 
   Color _getTypeColor(String type) {
     switch (type) {
-      case 'Critical':
-        return const Color(0xFFFF6B6B);
-      case 'Warning':
-        return Colors.orange;
-      case 'Info':
-        return Colors.blue;
+      case 'Flood':
+        return const Color(0xFF2196F3); // Blue
+      case 'Evacuation Center':
+        return const Color(0xFFFF9800); // Orange
+      case 'Emergency Services':
+        return const Color(0xFFFF6B6B); // Red
       default:
         return Colors.grey;
     }
@@ -1021,7 +995,7 @@ class _ReportIncidentModalState extends State<_ReportIncidentModal> {
               ),
               const SizedBox(height: 12),
               Row(
-                children: ['Info', 'Critical', 'Warning'].map((type) {
+                children: ['Flood', 'Evacuation Center', 'Emergency Services'].map((type) {
                   final isSelected = _selectedType == type;
                   final color = _getTypeColor(type);
                   return Expanded(
@@ -1045,19 +1019,19 @@ class _ReportIncidentModalState extends State<_ReportIncidentModal> {
                           child: Column(
                             children: [
                               Icon(
-                                type == 'Critical'
-                                    ? Icons.error
-                                    : type == 'Warning'
-                                    ? Icons.warning_amber_rounded
-                                    : Icons.info,
+                                type == 'Flood'
+                                    ? Icons.water_drop
+                                    : type == 'Evacuation Center'
+                                    ? Icons.family_restroom
+                                    : Icons.emergency,
                                 color: isSelected ? color : Colors.grey[600],
                                 size: 24,
                               ),
                               const SizedBox(height: 4),
                               Text(
-                                type,
+                                type == 'Evacuation Center' ? 'Evacuation' : (type == 'Emergency Services' ? 'Emergency' : type),
                                 style: GoogleFonts.montserrat(
-                                  fontSize: 11,
+                                  fontSize: 10,
                                   fontWeight: isSelected
                                       ? FontWeight.w600
                                       : FontWeight.w500,
@@ -1168,15 +1142,15 @@ class _ReportIncidentModalState extends State<_ReportIncidentModal> {
                                 // Convert type to IncidentType enum
                                 IncidentType incidentType;
                                 switch (_selectedType) {
-                                  case 'Critical':
-                                    incidentType = IncidentType.critical;
+                                  case 'Flood':
+                                    incidentType = IncidentType.flood;
                                     break;
-                                  case 'Warning':
-                                    incidentType = IncidentType.warning;
+                                  case 'Evacuation Center':
+                                    incidentType = IncidentType.evacuationCenter;
                                     break;
-                                  case 'Info':
+                                  case 'Emergency Services':
                                   default:
-                                    incidentType = IncidentType.info;
+                                    incidentType = IncidentType.emergencyServices;
                                 }
 
                                 // Create report
@@ -1353,34 +1327,34 @@ class _NearbyReportsDialogState extends State<_NearbyReportsDialog> {
 
   Color _getIncidentColor(IncidentType type) {
     switch (type) {
-      case IncidentType.critical:
-        return const Color(0xFFFF6B6B);
-      case IncidentType.warning:
-        return Colors.orange;
-      case IncidentType.info:
-        return Colors.blue;
+      case IncidentType.flood:
+        return const Color(0xFF2196F3); // Blue
+      case IncidentType.evacuationCenter:
+        return const Color(0xFFFF9800); // Orange
+      case IncidentType.emergencyServices:
+        return const Color(0xFFFF6B6B); // Red
     }
   }
 
   IconData _getIncidentIcon(IncidentType type) {
     switch (type) {
-      case IncidentType.critical:
-        return Icons.error;
-      case IncidentType.warning:
-        return Icons.warning_amber_rounded;
-      case IncidentType.info:
-        return Icons.info;
+      case IncidentType.flood:
+        return Icons.water_drop;
+      case IncidentType.evacuationCenter:
+        return Icons.family_restroom;
+      case IncidentType.emergencyServices:
+        return Icons.emergency;
     }
   }
 
   String _getIncidentLabel(IncidentType type) {
     switch (type) {
-      case IncidentType.critical:
-        return 'Critical';
-      case IncidentType.warning:
-        return 'Warning';
-      case IncidentType.info:
-        return 'Info';
+      case IncidentType.flood:
+        return 'Flood';
+      case IncidentType.evacuationCenter:
+        return 'Evacuation';
+      case IncidentType.emergencyServices:
+        return 'Emergency';
     }
   }
 

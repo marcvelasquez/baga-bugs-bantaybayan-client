@@ -1,20 +1,23 @@
-import 'package:flutter/services.dart';
-import 'package:tflite_flutter/tflite_flutter.dart';
-import 'dart:convert';
+import 'package:latlong2/latlong.dart';
+import 'terrain_data_service.dart';
+import 'flood_risk_calculator.dart';
 
 class FloodPrediction {
   final double probability;
   final double depthCm;
   final String riskLevel;
+  final String action;
 
   FloodPrediction({
     required this.probability,
     required this.depthCm,
     required this.riskLevel,
+    required this.action,
   });
 
   String get riskLevelText {
-    if (riskLevel == 'CRITICAL') return '🔴 CRITICAL';
+    if (riskLevel == 'EXTREME') return '🔴 EXTREME';
+    if (riskLevel == 'VERY HIGH') return '🔴 VERY HIGH';
     if (riskLevel == 'HIGH') return '🟠 HIGH';
     if (riskLevel == 'MODERATE') return '🟡 MODERATE';
     return '🟢 LOW';
@@ -22,115 +25,52 @@ class FloodPrediction {
 }
 
 class MLPredictionService {
-  static Interpreter? _probabilityModel;
-  static Interpreter? _depthModel;
-  static Map<String, dynamic>? _scalerParams;
-  static bool _isInitialized = false;
+  static bool _isInitialized = true; // Always ready with rule-based model
 
-  /// Initialize ML models
+  /// Initialize ML models (no-op for rule-based model)
   static Future<bool> initialize() async {
-    if (_isInitialized) return true;
-
-    try {
-      // Load scaler parameters
-      final scalerJson = await rootBundle.loadString('assets/ml_models/scaler_params.json');
-      _scalerParams = jsonDecode(scalerJson);
-
-      // Load TFLite models
-      _probabilityModel = await Interpreter.fromAsset('assets/ml_models/flood_probability_model.tflite');
-      _depthModel = await Interpreter.fromAsset('assets/ml_models/flood_depth_model.tflite');
-
-      _isInitialized = true;
-      print('✅ ML models initialized successfully');
-      return true;
-    } catch (e) {
-      print('❌ Error initializing ML models: $e');
-      return false;
-    }
+    _isInitialized = true;
+    print('✅ Flood risk calculator initialized (rule-based model)');
+    return true;
   }
 
-  /// Dispose of models to free memory
+  /// Dispose of models (no-op for rule-based model)
   static void dispose() {
-    _probabilityModel?.close();
-    _depthModel?.close();
-    _probabilityModel = null;
-    _depthModel = null;
-    _isInitialized = false;
+    // Nothing to dispose
   }
 
-  /// Normalize input features using scaler parameters
-  static List<double> _normalizeInput(List<double> rawInput) {
-    if (_scalerParams == null) {
-      throw Exception('Scaler parameters not loaded');
-    }
-
-    final mean = List<double>.from(_scalerParams!['mean']);
-    final scale = List<double>.from(_scalerParams!['scale']);
-
-    return List<double>.generate(
-      rawInput.length,
-      (i) => (rawInput[i] - mean[i]) / scale[i],
-    );
-  }
-
-  /// Make flood prediction for given features
-  /// Features: [elevation, slope, flow_accumulation, distance_to_water, population, rainfall]
-  static Future<FloodPrediction?> predict({
-    required double elevation,
-    required double slope,
-    required double flowAccumulation,
-    required double distanceToWater,
-    required double population,
-    required double rainfall,
+  /// Make flood prediction using rule-based model
+  static Future<FloodPrediction?> predictForLocation({
+    required LatLng location,
+    required String weatherCondition,
+    double rain24hMm = 0.0,
   }) async {
-    if (!_isInitialized) {
-      final initialized = await initialize();
-      if (!initialized) return null;
-    }
-
     try {
-      // Prepare input features
-      final rawInput = [
-        elevation,
-        slope,
-        flowAccumulation,
-        distanceToWater,
-        population,
-        rainfall,
-      ];
-
-      // Normalize input
-      final normalizedInput = _normalizeInput(rawInput);
-
-      // Prepare for model (batch size = 1)
-      final input = [normalizedInput];
-
-      // Run flood probability prediction
-      final probabilityOutput = List.filled(1, 0.0).reshape([1, 1]);
-      _probabilityModel!.run(input, probabilityOutput);
-      final probability = probabilityOutput[0][0];
-
-      // Run flood depth prediction
-      final depthOutput = List.filled(1, 0.0).reshape([1, 1]);
-      _depthModel!.run(input, depthOutput);
-      final depth = depthOutput[0][0];
-
-      // Determine risk level
-      String riskLevel;
-      if (probability >= 0.7 || depth >= 50) {
-        riskLevel = 'CRITICAL';
-      } else if (probability >= 0.5 || depth >= 30) {
-        riskLevel = 'HIGH';
-      } else if (probability >= 0.3 || depth >= 15) {
-        riskLevel = 'MODERATE';
+      // Get terrain data for this location
+      final terrain = TerrainDataService.getTerrainData(location);
+      
+      // Calculate flood risk using rule-based model
+      final result = FloodRiskCalculator.calculateFloodRisk(
+        elevationM: terrain.elevation,
+        weatherCondition: weatherCondition,
+        rain24hMm: rain24hMm,
+      );
+      
+      // Estimate depth based on risk level and elevation
+      double estimatedDepth;
+      if (terrain.elevation < 5) {
+        estimatedDepth = result['risk'] * 100; // Up to 100cm in very low areas
+      } else if (terrain.elevation < 10) {
+        estimatedDepth = result['risk'] * 60; // Up to 60cm in low areas
       } else {
-        riskLevel = 'LOW';
+        estimatedDepth = result['risk'] * 30; // Up to 30cm in elevated areas
       }
-
+      
       return FloodPrediction(
-        probability: probability,
-        depthCm: depth,
-        riskLevel: riskLevel,
+        probability: result['risk'],
+        depthCm: estimatedDepth,
+        riskLevel: result['level'],
+        action: result['action'],
       );
     } catch (e) {
       print('Error making prediction: $e');
@@ -138,7 +78,8 @@ class MLPredictionService {
     }
   }
 
-  /// Make predictions for storm scenario (high rainfall)
+  /// Make predictions for storm scenario (backwards compatibility)
+  /// Maps rainfall to weather condition
   static Future<FloodPrediction?> predictForStorm({
     required double rainfall,
     double elevation = 100.0,
@@ -147,13 +88,42 @@ class MLPredictionService {
     double distanceToWater = 500.0,
     double population = 1000.0,
   }) async {
-    return predict(
-      elevation: elevation,
-      slope: slope,
-      flowAccumulation: flowAccumulation,
-      distanceToWater: distanceToWater,
-      population: population,
-      rainfall: rainfall,
+    // Map rainfall to weather condition
+    String weatherCondition;
+    if (rainfall >= 125) {
+      weatherCondition = 'typhoon';
+    } else if (rainfall >= 50) {
+      weatherCondition = 'heavy_rain';
+    } else if (rainfall >= 20) {
+      weatherCondition = 'moderate_rain';
+    } else if (rainfall >= 5) {
+      weatherCondition = 'light_rain';
+    } else {
+      weatherCondition = 'cloudy';
+    }
+    
+    // Calculate using rule-based model
+    final result = FloodRiskCalculator.calculateFloodRisk(
+      elevationM: elevation,
+      weatherCondition: weatherCondition,
+      rain24hMm: rainfall,
+    );
+    
+    // Estimate depth based on risk and elevation
+    double estimatedDepth;
+    if (elevation < 5) {
+      estimatedDepth = result['risk'] * 100;
+    } else if (elevation < 10) {
+      estimatedDepth = result['risk'] * 60;
+    } else {
+      estimatedDepth = result['risk'] * 30;
+    }
+    
+    return FloodPrediction(
+      probability: result['risk'],
+      depthCm: estimatedDepth,
+      riskLevel: result['level'],
+      action: result['action'],
     );
   }
 

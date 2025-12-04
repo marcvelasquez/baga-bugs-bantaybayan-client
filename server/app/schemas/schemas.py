@@ -5,9 +5,9 @@ from enum import Enum
 
 
 class IncidentType(str, Enum):
-    INFO = "info"
-    CRITICAL = "critical"
-    WARNING = "warning"
+    FLOOD = "flood"
+    EVACUATION_CENTER = "evacuation_center"
+    EMERGENCY_SERVICES = "emergency_services"
 
 
 # User schemas

@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:latlong2/latlong.dart';
 import '../services/flood_risk_service.dart';
 import '../services/tflite_inference_service.dart';
 import '../services/spatial_index_service.dart';

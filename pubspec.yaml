@@ -16,10 +16,10 @@ dependencies:
   google_fonts: ^6.1.0
   
   # Map and Location
-  google_maps_flutter: ^2.5.0
   flutter_map: ^6.1.0
   latlong2: ^0.9.0
   geolocator: ^10.1.0
+  url_launcher: ^6.2.0
   
   # Machine Learning
   tflite_flutter: ^0.11.0
@@ -52,6 +52,7 @@ flutter:
 
   assets:
     - .env
+    - assets/routing/pampanga_road_grid.json
     # - assets/ml_models/flood_probability_model.tflite
     # - assets/ml_models/flood_depth_model.tflite
     # - assets/ml_models/scaler_params.json

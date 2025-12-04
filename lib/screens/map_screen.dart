@@ -1,14 +1,21 @@
+import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:flutter_map/flutter_map.dart';
+import 'package:latlong2/latlong.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:http/http.dart' as http;
 import '../core/theme/colors.dart';
 import '../core/theme/theme_provider.dart';
 import '../widgets/sos_confirmation_modal.dart';
 import '../widgets/profile_dropdown.dart';
 import '../services/ml_prediction_service.dart';
 import '../services/scenario_service.dart';
+import '../services/routing_service.dart';
+import '../services/api_service.dart';
+import '../models/api_models.dart';
 
 class MapScreen extends StatefulWidget {
   const MapScreen({super.key});
@@ -18,15 +25,28 @@ class MapScreen extends StatefulWidget {
 }
 
 class _MapScreenState extends State<MapScreen> {
-  GoogleMapController? _mapController;
+  MapController? _mapController;
   bool _isSOSActive = false;
-  final Set<Marker> _markers = {};
-  final Set<Circle> _circles = {};
+  final List<Marker> _markers = [];
+  final List<CircleMarker> _circles = [];
+  final List<Polyline> _routeLines = [];
   
   // ML Prediction state
   FloodPrediction? _currentPrediction;
   bool _isMLActive = false;
   bool _isCalculatingRisk = false;
+  
+  // Routing state
+  RouteResult? _selectedRoute;
+  bool _isCalculatingRoute = false;
+  EmergencyLocation? _selectedDestination;
+  SearchResult? _searchDestination; // For searched location navigation
+  
+  // Weather forecast state
+  WeatherForecast? _weatherForecast;
+  int _selectedForecastDay = 0;
+  final List<CircleMarker> _forecastFloodZones = [];
+  FloodPrediction? _forecastPrediction; // Prediction for selected forecast day
   
   // Default location (Manila, Philippines)
   static const LatLng _defaultLocation = LatLng(14.5995, 120.9842);
@@ -69,10 +89,468 @@ class _MapScreenState extends State<MapScreen> {
   @override
   void initState() {
     super.initState();
+    _mapController = MapController();
     _getCurrentLocation();
     _createMarkers();
     _createFloodZones();
     _checkMLStatus();
+    _initializeRouting();
+    _loadWeatherForecast();
+  }
+
+  Future<void> _loadWeatherForecast() async {
+    try {
+      final forecast = await ApiService.getWeatherForecast(
+        latitude: _currentLocation.latitude,
+        longitude: _currentLocation.longitude,
+        days: 7,
+      );
+      
+      if (mounted) {
+        setState(() {
+          _weatherForecast = forecast;
+        });
+        // Show flood zones for today by default
+        _updateForecastFloodZones();
+      }
+    } catch (e) {
+      print('Error loading weather forecast: $e');
+    }
+  }
+
+  Future<void> _calculateForecastPrediction() async {
+    if (_weatherForecast == null || _selectedForecastDay >= _weatherForecast!.forecast.length) return;
+    
+    final day = _weatherForecast!.forecast[_selectedForecastDay];
+    
+    // Use the weather data to calculate flood prediction
+    // Map weather code to condition for better prediction
+    String weatherCondition;
+    if (day.weatherCode >= 95) {
+      weatherCondition = 'typhoon';
+    } else if (day.weatherCode >= 80 || day.precipitation >= 50) {
+      weatherCondition = 'heavy_rain';
+    } else if (day.weatherCode >= 61 || day.precipitation >= 20) {
+      weatherCondition = 'moderate_rain';
+    } else if (day.weatherCode >= 51 || day.precipitation >= 5) {
+      weatherCondition = 'light_rain';
+    } else if (day.weatherCode >= 45) {
+      weatherCondition = 'cloudy';
+    } else {
+      weatherCondition = 'clear';
+    }
+    
+    // Use the precipitation data to calculate flood prediction
+    final prediction = await MLPredictionService.predictForLocation(
+      location: _currentLocation,
+      weatherCondition: weatherCondition,
+      rain24hMm: day.precipitation,
+    );
+    
+    if (prediction != null && mounted) {
+      setState(() {
+        _forecastPrediction = prediction;
+      });
+      _showPredictionDetails();
+    } else if (mounted) {
+      // Fallback: create a basic prediction based on weather data
+      final fallbackPrediction = FloodPrediction(
+        probability: day.precipitation > 50 ? 0.7 : day.precipitation > 20 ? 0.4 : 0.1,
+        depthCm: day.precipitation > 50 ? 45.0 : day.precipitation > 20 ? 20.0 : 5.0,
+        riskLevel: day.precipitation > 50 ? 'HIGH' : day.precipitation > 20 ? 'MODERATE' : 'LOW',
+        action: day.precipitation > 50 
+            ? 'Prepare for potential flooding. Move valuables to higher ground.'
+            : day.precipitation > 20 
+                ? 'Monitor weather updates. Be prepared to evacuate if needed.'
+                : 'Normal conditions expected. Stay informed of weather changes.',
+      );
+      setState(() {
+        _forecastPrediction = fallbackPrediction;
+      });
+      _showPredictionDetails();
+    }
+  }
+
+  void _showPredictionDetails() {
+    if (_forecastPrediction == null || _weatherForecast == null) return;
+    
+    final day = _weatherForecast!.forecast[_selectedForecastDay];
+    final date = DateTime.parse(day.date);
+    final dayName = _selectedForecastDay == 0 
+        ? 'Today' 
+        : _selectedForecastDay == 1 
+            ? 'Tomorrow'
+            : '${_getDayName(date.weekday)}, ${date.day}/${date.month}';
+    
+    final themeProvider = Provider.of<ThemeProvider>(context, listen: false);
+    final isDarkMode = themeProvider.isDarkMode;
+    
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (context) => Container(
+        padding: const EdgeInsets.all(24),
+        decoration: BoxDecoration(
+          color: isDarkMode ? Colors.grey[900] : Colors.white,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Handle
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey[400],
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            const SizedBox(height: 20),
+            
+            // Header
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: _getPredictionColorForLevel(_forecastPrediction!.riskLevel).withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(
+                    Icons.water_drop,
+                    color: _getPredictionColorForLevel(_forecastPrediction!.riskLevel),
+                    size: 28,
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Flood Prediction',
+                        style: GoogleFonts.montserrat(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: isDarkMode ? Colors.white : Colors.black87,
+                        ),
+                      ),
+                      Text(
+                        dayName,
+                        style: GoogleFonts.montserrat(
+                          fontSize: 14,
+                          color: isDarkMode ? Colors.white70 : Colors.grey[600],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Text(
+                  _getWeatherIcon(day.weatherCode),
+                  style: const TextStyle(fontSize: 36),
+                ),
+              ],
+            ),
+            const SizedBox(height: 24),
+            
+            // Risk Level Card
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: _getPredictionColorForLevel(_forecastPrediction!.riskLevel).withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(
+                  color: _getPredictionColorForLevel(_forecastPrediction!.riskLevel).withValues(alpha: 0.3),
+                ),
+              ),
+              child: Column(
+                children: [
+                  Text(
+                    _forecastPrediction!.riskLevel,
+                    style: GoogleFonts.montserrat(
+                      fontSize: 28,
+                      fontWeight: FontWeight.bold,
+                      color: _getPredictionColorForLevel(_forecastPrediction!.riskLevel),
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Risk Level',
+                    style: GoogleFonts.montserrat(
+                      fontSize: 12,
+                      color: isDarkMode ? Colors.white70 : Colors.grey[600],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+            
+            // Stats Row
+            Row(
+              children: [
+                Expanded(
+                  child: _buildPredictionStat(
+                    icon: Icons.percent,
+                    value: '${(_forecastPrediction!.probability * 100).toStringAsFixed(0)}%',
+                    label: 'Flood Probability',
+                    color: Colors.blue,
+                    isDarkMode: isDarkMode,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: _buildPredictionStat(
+                    icon: Icons.straighten,
+                    value: '${_forecastPrediction!.depthCm.toStringAsFixed(0)} cm',
+                    label: 'Est. Depth',
+                    color: Colors.orange,
+                    isDarkMode: isDarkMode,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: _buildPredictionStat(
+                    icon: Icons.water_drop,
+                    value: '${day.precipitation.toStringAsFixed(1)} mm',
+                    label: 'Precipitation',
+                    color: Colors.cyan,
+                    isDarkMode: isDarkMode,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: _buildPredictionStat(
+                    icon: Icons.air,
+                    value: '${day.windSpeedMax.toStringAsFixed(0)} km/h',
+                    label: 'Max Wind',
+                    color: Colors.teal,
+                    isDarkMode: isDarkMode,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+            
+            // Recommended Action
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: isDarkMode ? Colors.grey[800] : Colors.grey[100],
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(Icons.info_outline, size: 18, color: Colors.blue[700]),
+                      const SizedBox(width: 8),
+                      Text(
+                        'Recommended Action',
+                        style: GoogleFonts.montserrat(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: isDarkMode ? Colors.white : Colors.black87,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    _forecastPrediction!.action,
+                    style: GoogleFonts.montserrat(
+                      fontSize: 14,
+                      color: isDarkMode ? Colors.white70 : Colors.grey[700],
+                      height: 1.4,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+            
+            // Close button
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: () => Navigator.pop(context),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.blue[700],
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                child: Text(
+                  'Close',
+                  style: GoogleFonts.montserrat(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPredictionStat({
+    required IconData icon,
+    required String value,
+    required String label,
+    required Color color,
+    required bool isDarkMode,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        children: [
+          Icon(icon, color: color, size: 20),
+          const SizedBox(height: 6),
+          Text(
+            value,
+            style: GoogleFonts.montserrat(
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+              color: isDarkMode ? Colors.white : Colors.black87,
+            ),
+          ),
+          Text(
+            label,
+            style: GoogleFonts.montserrat(
+              fontSize: 10,
+              color: isDarkMode ? Colors.white60 : Colors.grey[600],
+            ),
+            textAlign: TextAlign.center,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Color _getPredictionColorForLevel(String level) {
+    switch (level) {
+      case 'CRITICAL':
+        return Colors.red;
+      case 'HIGH':
+        return Colors.orange;
+      case 'MODERATE':
+        return Colors.yellow.shade700;
+      default:
+        return Colors.green;
+    }
+  }
+
+  void _updateForecastFloodZones() {
+    if (_weatherForecast == null || _selectedForecastDay >= _weatherForecast!.forecast.length) return;
+    
+    final day = _weatherForecast!.forecast[_selectedForecastDay];
+    _forecastFloodZones.clear();
+    
+    // Determine flood severity based on precipitation and weather code
+    final isStormDay = _isStormyWeather(day.weatherCode) || day.precipitation > 20;
+    
+    if (!isStormDay) {
+      setState(() {});
+      return;
+    }
+    
+    // Generate flood-prone zones based on precipitation levels
+    // These would ideally come from a proper flood model, but we'll simulate
+    final floodProneLocs = [
+      LatLng(_currentLocation.latitude + 0.005, _currentLocation.longitude + 0.003),
+      LatLng(_currentLocation.latitude - 0.003, _currentLocation.longitude + 0.006),
+      LatLng(_currentLocation.latitude + 0.002, _currentLocation.longitude - 0.004),
+      LatLng(_currentLocation.latitude - 0.006, _currentLocation.longitude - 0.002),
+      LatLng(_currentLocation.latitude + 0.008, _currentLocation.longitude + 0.001),
+    ];
+    
+    Color zoneColor;
+    double baseRadius;
+    
+    // Calculate severity based on precipitation
+    if (day.precipitation > 50 || day.weatherCode >= 95) {
+      zoneColor = Colors.red;
+      baseRadius = 400.0;
+    } else if (day.precipitation > 30 || day.weatherCode >= 80) {
+      zoneColor = Colors.orange;
+      baseRadius = 300.0;
+    } else {
+      zoneColor = Colors.yellow.shade700;
+      baseRadius = 200.0;
+    }
+    
+    for (int i = 0; i < floodProneLocs.length; i++) {
+      // Vary radius slightly for more natural appearance
+      final radius = baseRadius * (0.8 + (i % 3) * 0.2);
+      
+      _forecastFloodZones.add(
+        CircleMarker(
+          point: floodProneLocs[i],
+          radius: radius,
+          color: zoneColor.withValues(alpha: 0.35),
+          borderColor: zoneColor.withValues(alpha: 0.7),
+          borderStrokeWidth: 2,
+          useRadiusInMeter: true,
+        ),
+      );
+    }
+    
+    setState(() {});
+  }
+
+  bool _isStormyWeather(int weatherCode) {
+    return weatherCode >= 95 || // Thunderstorms
+        (weatherCode >= 80 && weatherCode <= 82) || // Rain showers
+        (weatherCode >= 61 && weatherCode <= 67); // Rain
+  }
+
+  String _getWeatherIcon(int weatherCode) {
+    if (weatherCode >= 95) return '⛈️';
+    if (weatherCode >= 80) return '🌧️';
+    if (weatherCode >= 71) return '🌨️';
+    if (weatherCode >= 61) return '🌧️';
+    if (weatherCode >= 51) return '🌦️';
+    if (weatherCode >= 45) return '🌫️';
+    if (weatherCode >= 3) return '☁️';
+    if (weatherCode >= 1) return '⛅';
+    return '☀️';
+  }
+
+  String _getDayName(int weekday) {
+    switch (weekday) {
+      case 1: return 'Mon';
+      case 2: return 'Tue';
+      case 3: return 'Wed';
+      case 4: return 'Thu';
+      case 5: return 'Fri';
+      case 6: return 'Sat';
+      case 7: return 'Sun';
+      default: return '';
+    }
+  }
+
+  Future<void> _initializeRouting() async {
+    await RoutingService.initialize();
   }
 
   Future<void> _checkMLStatus() async {
@@ -162,13 +640,13 @@ class _MapScreenState extends State<MapScreen> {
 
     for (int i = 0; i < floodZones.length; i++) {
       _circles.add(
-        Circle(
-          circleId: CircleId('flood_zone_$i'),
-          center: floodZones[i],
+        CircleMarker(
+          point: floodZones[i],
           radius: radius,
-          fillColor: zoneColor.withOpacity(0.3),
-          strokeColor: zoneColor.withOpacity(0.6),
-          strokeWidth: 2,
+          color: zoneColor.withOpacity(0.3),
+          borderColor: zoneColor.withOpacity(0.6),
+          borderStrokeWidth: 2,
+          useRadiusInMeter: true,
         ),
       );
     }
@@ -202,43 +680,46 @@ class _MapScreenState extends State<MapScreen> {
       setState(() {
         _currentLocation = LatLng(position.latitude, position.longitude);
       });
-      _mapController?.animateCamera(
-        CameraUpdate.newLatLng(_currentLocation),
-      );
+      _mapController?.move(_currentLocation, 14);
     } catch (e) {
       // Use default location if getting current location fails
     }
   }
 
   void _createMarkers() {
+    _markers.clear();
     for (var location in _emergencyLocations) {
       _markers.add(
         Marker(
-          markerId: MarkerId(location.name),
-          position: location.position,
-          infoWindow: InfoWindow(
-            title: location.name,
-            snippet: location.type.toString().split('.').last,
-          ),
-          icon: BitmapDescriptor.defaultMarkerWithHue(
-            _getMarkerHue(location.type),
+          point: location.position,
+          width: 36,
+          height: 36,
+          child: Container(
+            decoration: BoxDecoration(
+              color: Colors.white,
+              shape: BoxShape.circle,
+              border: Border.all(
+                color: location.color,
+                width: 2,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.2),
+                  blurRadius: 4,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+            child: Center(
+              child: Icon(
+                location.icon,
+                color: location.color,
+                size: 18,
+              ),
+            ),
           ),
         ),
       );
-    }
-  }
-
-  double _getMarkerHue(EmergencyLocationType type) {
-    switch (type) {
-      case EmergencyLocationType.evacuationCenter:
-        return BitmapDescriptor.hueOrange;
-      case EmergencyLocationType.medicalStation:
-      case EmergencyLocationType.hospital:
-        return BitmapDescriptor.hueAzure;
-      case EmergencyLocationType.policeStation:
-        return BitmapDescriptor.hueViolet;
-      case EmergencyLocationType.reliefCenter:
-        return BitmapDescriptor.hueGreen;
     }
   }
 
@@ -252,24 +733,169 @@ class _MapScreenState extends State<MapScreen> {
 
     for (int i = 0; i < floodZones.length; i++) {
       _circles.add(
-        Circle(
-          circleId: CircleId('flood_zone_$i'),
-          center: floodZones[i],
+        CircleMarker(
+          point: floodZones[i],
           radius: 300, // 300 meters
-          fillColor: AppColors.floodZoneRed.withOpacity(0.3),
-          strokeColor: AppColors.floodZoneRed.withOpacity(0.6),
-          strokeWidth: 2,
+          color: AppColors.floodZoneRed.withOpacity(0.3),
+          borderColor: AppColors.floodZoneRed.withOpacity(0.6),
+          borderStrokeWidth: 2,
+          useRadiusInMeter: true,
         ),
       );
     }
   }
 
   void _recenterMap() {
-    if (_mapController != null) {
-      _mapController!.animateCamera(
-        CameraUpdate.newLatLngZoom(_currentLocation, 14),
+    _mapController?.move(_currentLocation, 14);
+  }
+
+  Future<void> _selectLocation(EmergencyLocation location) async {
+    setState(() {
+      _selectedDestination = location;
+      _isCalculatingRoute = true;
+    });
+
+    // Move camera to show the selected location
+    _mapController?.move(location.position, 15);
+
+    // Calculate route from current location to selected destination
+    await _calculateRoutes(_currentLocation, location.position);
+  }
+
+  Future<void> _navigateToSearchResult(SearchResult result) async {
+    setState(() {
+      _searchDestination = result;
+      _selectedDestination = null; // Clear emergency destination
+      _isCalculatingRoute = true;
+    });
+
+    // Move camera to show the selected location
+    _mapController?.move(result.position, 15);
+
+    // Calculate route from current location to search result
+    await _calculateRoutes(_currentLocation, result.position);
+  }
+
+  Future<void> _calculateRoutes(LatLng start, LatLng end) async {
+    try {
+      final routes = await RoutingService.findAlternativeRoutes(
+        start: start,
+        destination: end,
       );
+
+      if (routes.isEmpty) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('No routes found between these locations'),
+              duration: Duration(seconds: 3),
+            ),
+          );
+        }
+        setState(() => _isCalculatingRoute = false);
+        return;
+      }
+
+      // Convert routes to polylines
+      _routeLines.clear();
+      for (var i = 0; i < routes.length; i++) {
+        final route = routes[i];
+        final color = _getRouteColor(route.riskLevel, i);
+
+        _routeLines.add(
+          Polyline(
+            points: route.coordinates,
+            color: color,
+            strokeWidth: i == 0 ? 5.0 : 3.0, // Highlight first route
+          ),
+        );
+      }
+
+      setState(() {
+        _selectedRoute = routes[0]; // Select safest/fastest route
+        _isCalculatingRoute = false;
+      });
+
+      // Zoom to show entire route
+      _zoomToRoute(routes[0].coordinates);
+    } catch (e) {
+      print('Error calculating routes: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error calculating route: $e'),
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+      setState(() => _isCalculatingRoute = false);
     }
+  }
+
+  Color _getRouteColor(String riskLevel, int routeIndex) {
+    // First route: by risk level
+    // Subsequent routes: muted colors
+    if (routeIndex == 0) {
+      switch (riskLevel) {
+        case 'CRITICAL':
+          return Colors.red;
+        case 'HIGH':
+          return Colors.orange;
+        case 'MODERATE':
+          return Colors.yellow.shade700;
+        default:
+          return Colors.green;
+      }
+    } else {
+      return Colors.blue.withOpacity(0.5);
+    }
+  }
+
+  void _zoomToRoute(List<LatLng> coordinates) {
+    if (coordinates.isEmpty) return;
+
+    // Calculate bounds
+    double minLat = coordinates[0].latitude;
+    double maxLat = coordinates[0].latitude;
+    double minLng = coordinates[0].longitude;
+    double maxLng = coordinates[0].longitude;
+
+    for (var point in coordinates) {
+      if (point.latitude < minLat) minLat = point.latitude;
+      if (point.latitude > maxLat) maxLat = point.latitude;
+      if (point.longitude < minLng) minLng = point.longitude;
+      if (point.longitude > maxLng) maxLng = point.longitude;
+    }
+
+    final centerLat = (minLat + maxLat) / 2;
+    final centerLng = (minLng + maxLng) / 2;
+    final center = LatLng(centerLat, centerLng);
+
+    // Calculate appropriate zoom level
+    final latDiff = maxLat - minLat;
+    final lngDiff = maxLng - minLng;
+    final maxDiff = latDiff > lngDiff ? latDiff : lngDiff;
+
+    double zoom = 14;
+    if (maxDiff > 0.5) {
+      zoom = 10;
+    } else if (maxDiff > 0.2) {
+      zoom = 11;
+    } else if (maxDiff > 0.1) {
+      zoom = 12;
+    } else if (maxDiff > 0.05) {
+      zoom = 13;
+    }
+
+    _mapController?.move(center, zoom);
+  }
+
+  void _clearRoute() {
+    setState(() {
+      _selectedRoute = null;
+      _selectedDestination = null;
+      _routeLines.clear();
+    });
   }
 
   void _onSOSConfirmed() {
@@ -290,44 +916,69 @@ class _MapScreenState extends State<MapScreen> {
           : AppColors.lightBackgroundPrimary,
       body: Stack(
         children: [
-          // Google Maps
-          GoogleMap(
-            initialCameraPosition: CameraPosition(
-              target: _defaultLocation,
-              zoom: 14,
+          // OpenStreetMap using flutter_map
+          FlutterMap(
+            mapController: _mapController,
+            options: MapOptions(
+              initialCenter: _defaultLocation,
+              initialZoom: 14,
+              minZoom: 5,
+              maxZoom: 18,
             ),
-            onMapCreated: (GoogleMapController controller) {
-              _mapController = controller;
-              if (isDarkMode) {
-                controller.setMapStyle('''
-                  [
-                    {
-                      "elementType": "geometry",
-                      "stylers": [{"color": "#242f3e"}]
-                    },
-                    {
-                      "elementType": "labels.text.fill",
-                      "stylers": [{"color": "#746855"}]
-                    },
-                    {
-                      "elementType": "labels.text.stroke",
-                      "stylers": [{"color": "#242f3e"}]
-                    },
-                    {
-                      "featureType": "water",
-                      "elementType": "geometry",
-                      "stylers": [{"color": "#17263c"}]
-                    }
-                  ]
-                ''');
-              }
-            },
-            markers: _markers,
-            circles: _circles,
-            myLocationEnabled: true,
-            myLocationButtonEnabled: false,
-            zoomControlsEnabled: false,
-            mapToolbarEnabled: false,
+            children: [
+              // OSM Tile Layer
+              TileLayer(
+                urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                userAgentPackageName: 'com.bagabugs.bantaybayan',
+                maxZoom: 19,
+              ),
+              // Flood zone circles (current + forecast)
+              CircleLayer(
+                circles: [..._circles, ..._forecastFloodZones],
+              ),
+              // Route polylines
+              PolylineLayer(
+                polylines: _routeLines,
+              ),
+              // Emergency location markers
+              MarkerLayer(
+                markers: _markers,
+              ),
+              // Search destination marker
+              if (_searchDestination != null)
+                MarkerLayer(
+                  markers: [
+                    Marker(
+                      point: _searchDestination!.position,
+                      width: 50,
+                      height: 50,
+                      child: Column(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color: _searchDestination!.color,
+                              shape: BoxShape.circle,
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black.withOpacity(0.3),
+                                  blurRadius: 6,
+                                  offset: const Offset(0, 2),
+                                ),
+                              ],
+                            ),
+                            child: Icon(
+                              _searchDestination!.icon,
+                              color: Colors.white,
+                              size: 20,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+            ],
           ),
 
           // Top status bar
@@ -419,21 +1070,34 @@ class _MapScreenState extends State<MapScreen> {
                 ],
               ),
               child: InkWell(
-                onTap: () {
-                  showDialog(
+                onTap: () async {
+                  final result = await showDialog<Map<String, dynamic>>(
                     context: context,
                     builder: (context) => _SearchDialog(
-                      locations: _emergencyLocations,
+                      emergencyLocations: _emergencyLocations,
                       isDarkMode: isDarkMode,
+                      currentLocation: _currentLocation,
                     ),
                   );
+                  
+                  if (result != null) {
+                    if (result['type'] == 'emergency') {
+                      // Emergency location selected
+                      final location = result['location'] as EmergencyLocation;
+                      await _selectLocation(location);
+                    } else if (result['type'] == 'search') {
+                      // Search result selected - navigate to it
+                      final searchResult = result['result'] as SearchResult;
+                      await _navigateToSearchResult(searchResult);
+                    }
+                  }
                 },
                 child: Row(
                   children: [
                     Icon(Icons.search, color: Colors.grey[600], size: 22),
                     const SizedBox(width: 14),
                     Text(
-                      'Search emergency locations...',
+                      'Search any location...',
                       style: GoogleFonts.montserrat(
                         fontSize: 15,
                         color: Colors.grey[500],
@@ -446,11 +1110,158 @@ class _MapScreenState extends State<MapScreen> {
             ),
           ),
 
+          // Route info card (if route is calculated)
+          if (_selectedRoute != null)
+            Positioned(
+              top: 180, // Below search bar
+              left: 20,
+              right: 20,
+              child: Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(16),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.1),
+                      blurRadius: 12,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(
+                          Icons.route,
+                          color: _getRouteColor(_selectedRoute!.riskLevel, 0),
+                          size: 24,
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                _selectedDestination?.name ?? _searchDestination?.name ?? 'Route',
+                                style: GoogleFonts.montserrat(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              Text(
+                                '${_selectedRoute!.distanceKm.toStringAsFixed(1)} km',
+                                style: GoogleFonts.montserrat(
+                                  fontSize: 14,
+                                  color: Colors.grey[600],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.close),
+                          onPressed: _clearRoute,
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 6,
+                          ),
+                          decoration: BoxDecoration(
+                            color: _getRouteColor(_selectedRoute!.riskLevel, 0)
+                                .withOpacity(0.15),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(
+                              color: _getRouteColor(_selectedRoute!.riskLevel, 0),
+                              width: 1.5,
+                            ),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.warning_amber_rounded,
+                                size: 16,
+                                color: _getRouteColor(_selectedRoute!.riskLevel, 0),
+                              ),
+                              const SizedBox(width: 4),
+                              Text(
+                                _selectedRoute!.riskLevel,
+                                style: GoogleFonts.montserrat(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                  color: _getRouteColor(_selectedRoute!.riskLevel, 0),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Text(
+                          'Flood Risk: ${(_selectedRoute!.averageFloodRisk * 100).toStringAsFixed(0)}%',
+                          style: GoogleFonts.montserrat(
+                            fontSize: 13,
+                            color: Colors.grey[700],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+
+          // Loading indicator (if calculating route)
+          if (_isCalculatingRoute)
+            Positioned(
+              top: 180,
+              left: 20,
+              right: 20,
+              child: Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(16),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.1),
+                      blurRadius: 12,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
+                ),
+                child: Row(
+                  children: [
+                    const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                    const SizedBox(width: 12),
+                    Text(
+                      'Calculating route...',
+                      style: GoogleFonts.montserrat(fontSize: 14),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+
           // Legend box (bottom left, above SOS)
           Positioned(
             left: 16,
             bottom: 110,
             child: Container(
+              width: 140,
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
                 color: isDarkMode ? Colors.black : Colors.white,
@@ -472,8 +1283,117 @@ class _MapScreenState extends State<MapScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  // ML Prediction info (if active)
-                  if (_isMLActive && _currentPrediction != null) ...[
+                  // Forecast Prediction for selected day
+                  if (_weatherForecast != null && _weatherForecast!.forecast.isNotEmpty) ...[
+                    Builder(
+                      builder: (context) {
+                        final day = _weatherForecast!.forecast[_selectedForecastDay];
+                        final date = DateTime.parse(day.date);
+                        final dayName = _selectedForecastDay == 0 
+                            ? 'Today' 
+                            : _selectedForecastDay == 1 
+                                ? 'Tomorrow'
+                                : '${_getDayName(date.weekday)}';
+                        final hasStorm = _isStormyWeather(day.weatherCode) || day.precipitation > 20;
+                        final riskColor = hasStorm 
+                            ? (day.precipitation > 50 ? Colors.red : Colors.orange)
+                            : Colors.green;
+                        final riskLevel = day.precipitation > 50 
+                            ? 'HIGH' 
+                            : day.precipitation > 20 
+                                ? 'MODERATE' 
+                                : 'LOW';
+                        
+                        return GestureDetector(
+                          onTap: _calculateForecastPrediction,
+                          child: Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color: riskColor.withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(
+                                color: riskColor.withOpacity(0.3),
+                              ),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    Text(
+                                      _getWeatherIcon(day.weatherCode),
+                                      style: const TextStyle(fontSize: 14),
+                                    ),
+                                    const SizedBox(width: 4),
+                                    Flexible(
+                                      child: Text(
+                                        '$dayName Forecast',
+                                        style: theme.textTheme.labelSmall?.copyWith(
+                                          fontWeight: FontWeight.bold,
+                                          color: riskColor,
+                                        ),
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                    Icon(
+                                      Icons.chevron_right,
+                                      size: 14,
+                                      color: isDarkMode ? Colors.white38 : Colors.grey[400],
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 4),
+                                Row(
+                                  children: [
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                      decoration: BoxDecoration(
+                                        color: riskColor.withOpacity(0.2),
+                                        borderRadius: BorderRadius.circular(4),
+                                      ),
+                                      child: Text(
+                                        riskLevel,
+                                        style: theme.textTheme.labelSmall?.copyWith(
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 10,
+                                          color: riskColor,
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Icon(Icons.water_drop, size: 10, color: Colors.blue[600]),
+                                    const SizedBox(width: 2),
+                                    Text(
+                                      '${day.precipitation.toStringAsFixed(0)}mm',
+                                      style: theme.textTheme.labelSmall?.copyWith(
+                                        fontSize: 10,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                if (hasStorm) ...[
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    'Tap to view details',
+                                    style: theme.textTheme.labelSmall?.copyWith(
+                                      fontSize: 9,
+                                      color: isDarkMode ? Colors.white38 : Colors.grey[500],
+                                      fontStyle: FontStyle.italic,
+                                    ),
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                    Divider(height: 1, color: Colors.grey.withOpacity(0.3)),
+                    const SizedBox(height: 12),
+                  ],
+                  // Legacy ML Prediction info (if active and no forecast)
+                  if (_weatherForecast == null && _isMLActive && _currentPrediction != null) ...[
                     Container(
                       padding: const EdgeInsets.all(8),
                       decoration: BoxDecoration(
@@ -598,6 +1518,7 @@ class _MapScreenState extends State<MapScreen> {
             right: 16,
             bottom: 110,
             child: FloatingActionButton(
+              heroTag: 'recenter_btn',
               onPressed: _recenterMap,
               backgroundColor: isDarkMode ? Colors.grey[800] : Colors.white,
               mini: true,
@@ -607,6 +1528,17 @@ class _MapScreenState extends State<MapScreen> {
               ),
             ),
           ),
+
+          // Weather Forecast Day Navigator (top center)
+          if (_weatherForecast != null && _weatherForecast!.forecast.isNotEmpty)
+            Positioned(
+              top: 16,
+              left: 0,
+              right: 0,
+              child: Center(
+                child: _buildDayNavigator(isDarkMode),
+              ),
+            ),
 
           // SOS Button (minimal, clean design)
           Positioned(
@@ -702,6 +1634,119 @@ class _MapScreenState extends State<MapScreen> {
         return Colors.green;
     }
   }
+
+  Widget _buildDayNavigator(bool isDarkMode) {
+    final day = _weatherForecast!.forecast[_selectedForecastDay];
+    final date = DateTime.parse(day.date);
+    final dayName = _selectedForecastDay == 0 
+        ? 'Today' 
+        : _selectedForecastDay == 1 
+            ? 'Tmrw'
+            : _getDayName(date.weekday);
+    final hasStorm = _isStormyWeather(day.weatherCode) || day.precipitation > 20;
+    
+    return GestureDetector(
+      onTap: _calculateForecastPrediction,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: isDarkMode ? Colors.grey[900]!.withValues(alpha: 0.95) : Colors.white.withValues(alpha: 0.95),
+          borderRadius: BorderRadius.circular(24),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.15),
+              blurRadius: 8,
+              offset: const Offset(0, 2),
+            ),
+          ],
+          border: hasStorm ? Border.all(color: Colors.red.withValues(alpha: 0.5), width: 1.5) : null,
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Left arrow
+            GestureDetector(
+              onTap: _selectedForecastDay > 0 
+                  ? () {
+                      setState(() {
+                        _selectedForecastDay--;
+                        _forecastPrediction = null;
+                      });
+                      _updateForecastFloodZones();
+                    }
+                  : null,
+              child: Icon(
+                Icons.chevron_left,
+                size: 24,
+                color: _selectedForecastDay > 0 
+                    ? (isDarkMode ? Colors.white : Colors.black87)
+                    : (isDarkMode ? Colors.grey[700] : Colors.grey[300]),
+              ),
+            ),
+            
+            const SizedBox(width: 8),
+            
+            // Day info
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  _getWeatherIcon(day.weatherCode),
+                  style: const TextStyle(fontSize: 18),
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  dayName,
+                  style: GoogleFonts.montserrat(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: hasStorm 
+                        ? Colors.red[700]
+                        : (isDarkMode ? Colors.white : Colors.black87),
+                  ),
+                ),
+                if (day.precipitation > 0) ...[
+                  const SizedBox(width: 6),
+                  Icon(Icons.water_drop, size: 12, color: Colors.blue[600]),
+                  Text(
+                    '${day.precipitation.toStringAsFixed(0)}mm',
+                    style: GoogleFonts.montserrat(
+                      fontSize: 11,
+                      color: Colors.blue[600],
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+            
+            const SizedBox(width: 8),
+            
+            // Right arrow
+            GestureDetector(
+              onTap: _selectedForecastDay < _weatherForecast!.forecast.length - 1 
+                  ? () {
+                      setState(() {
+                        _selectedForecastDay++;
+                        _forecastPrediction = null;
+                      });
+                      _updateForecastFloodZones();
+                    }
+                  : null,
+              child: Icon(
+                Icons.chevron_right,
+                size: 24,
+                color: _selectedForecastDay < _weatherForecast!.forecast.length - 1 
+                    ? (isDarkMode ? Colors.white : Colors.black87)
+                    : (isDarkMode ? Colors.grey[700] : Colors.grey[300]),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
 }
 
 enum EmergencyLocationType {
@@ -753,12 +1798,88 @@ class EmergencyLocation {
   }
 }
 
-// Search dialog
-class _SearchDialog extends StatefulWidget {
-  final List<EmergencyLocation> locations;
-  final bool isDarkMode;
+// Search result model for real locations
+class SearchResult {
+  final String name;
+  final String displayName;
+  final LatLng position;
+  final String type;
 
-  const _SearchDialog({required this.locations, required this.isDarkMode});
+  const SearchResult({
+    required this.name,
+    required this.displayName,
+    required this.position,
+    required this.type,
+  });
+
+  IconData get icon {
+    final lowerType = type.toLowerCase();
+    if (lowerType.contains('hospital') || lowerType.contains('clinic') || lowerType.contains('medical')) {
+      return Icons.local_hospital;
+    } else if (lowerType.contains('police') || lowerType.contains('station')) {
+      return Icons.local_police;
+    } else if (lowerType.contains('school') || lowerType.contains('university')) {
+      return Icons.school;
+    } else if (lowerType.contains('restaurant') || lowerType.contains('food')) {
+      return Icons.restaurant;
+    } else if (lowerType.contains('shop') || lowerType.contains('store') || lowerType.contains('mall')) {
+      return Icons.store;
+    } else if (lowerType.contains('church') || lowerType.contains('mosque') || lowerType.contains('temple')) {
+      return Icons.church;
+    } else if (lowerType.contains('park') || lowerType.contains('garden')) {
+      return Icons.park;
+    } else if (lowerType.contains('gas') || lowerType.contains('fuel')) {
+      return Icons.local_gas_station;
+    } else if (lowerType.contains('bank') || lowerType.contains('atm')) {
+      return Icons.account_balance;
+    } else if (lowerType.contains('pharmacy') || lowerType.contains('drug')) {
+      return Icons.local_pharmacy;
+    } else if (lowerType.contains('hotel') || lowerType.contains('inn') || lowerType.contains('lodge')) {
+      return Icons.hotel;
+    } else if (lowerType.contains('bus') || lowerType.contains('terminal')) {
+      return Icons.directions_bus;
+    } else if (lowerType.contains('airport')) {
+      return Icons.flight;
+    } else if (lowerType.contains('barangay') || lowerType.contains('government') || lowerType.contains('municipal')) {
+      return Icons.account_balance;
+    }
+    return Icons.location_on;
+  }
+
+  Color get color {
+    final lowerType = type.toLowerCase();
+    if (lowerType.contains('hospital') || lowerType.contains('clinic') || lowerType.contains('medical') || lowerType.contains('pharmacy')) {
+      return Colors.blue;
+    } else if (lowerType.contains('police')) {
+      return Colors.indigo;
+    } else if (lowerType.contains('school') || lowerType.contains('university')) {
+      return Colors.purple;
+    } else if (lowerType.contains('restaurant') || lowerType.contains('food')) {
+      return Colors.orange;
+    } else if (lowerType.contains('shop') || lowerType.contains('store') || lowerType.contains('mall')) {
+      return Colors.teal;
+    } else if (lowerType.contains('church') || lowerType.contains('mosque') || lowerType.contains('temple')) {
+      return Colors.brown;
+    } else if (lowerType.contains('park') || lowerType.contains('garden')) {
+      return Colors.green;
+    } else if (lowerType.contains('barangay') || lowerType.contains('government') || lowerType.contains('municipal')) {
+      return Colors.red;
+    }
+    return Colors.grey;
+  }
+}
+
+// Search dialog with real location search
+class _SearchDialog extends StatefulWidget {
+  final List<EmergencyLocation> emergencyLocations;
+  final bool isDarkMode;
+  final LatLng currentLocation;
+
+  const _SearchDialog({
+    required this.emergencyLocations,
+    required this.isDarkMode,
+    required this.currentLocation,
+  });
 
   @override
   State<_SearchDialog> createState() => _SearchDialogState();
@@ -766,25 +1887,87 @@ class _SearchDialog extends StatefulWidget {
 
 class _SearchDialogState extends State<_SearchDialog> {
   final TextEditingController _controller = TextEditingController();
-  List<EmergencyLocation> _results = [];
+  List<SearchResult> _searchResults = [];
+  List<EmergencyLocation> _emergencyResults = [];
+  bool _isSearching = false;
+  Timer? _debounce;
+
+  @override
+  void initState() {
+    super.initState();
+    _emergencyResults = widget.emergencyLocations;
+  }
 
   @override
   void dispose() {
     _controller.dispose();
+    _debounce?.cancel();
     super.dispose();
   }
 
-  void _search(String query) {
-    setState(() {
-      if (query.isEmpty) {
-        _results = widget.locations;
+  Future<void> _searchLocations(String query) async {
+    if (query.isEmpty) {
+      setState(() {
+        _searchResults = [];
+        _emergencyResults = widget.emergencyLocations;
+        _isSearching = false;
+      });
+      return;
+    }
+
+    // Filter emergency locations
+    _emergencyResults = widget.emergencyLocations
+        .where((loc) => loc.name.toLowerCase().contains(query.toLowerCase()))
+        .toList();
+
+    setState(() => _isSearching = true);
+
+    try {
+      // Search using Nominatim API (OpenStreetMap)
+      final url = Uri.parse(
+        'https://nominatim.openstreetmap.org/search'
+        '?q=${Uri.encodeComponent(query)}'
+        '&format=json'
+        '&limit=10'
+        '&viewbox=${widget.currentLocation.longitude - 0.5},${widget.currentLocation.latitude + 0.5},${widget.currentLocation.longitude + 0.5},${widget.currentLocation.latitude - 0.5}'
+        '&bounded=0'
+        '&addressdetails=1',
+      );
+
+      final response = await http.get(
+        url,
+        headers: {'User-Agent': 'BantayBayan-App/1.0'},
+      );
+
+      if (response.statusCode == 200) {
+        final List<dynamic> data = json.decode(response.body);
+        
+        setState(() {
+          _searchResults = data.map((item) {
+            return SearchResult(
+              name: item['name'] ?? item['display_name']?.split(',')[0] ?? 'Unknown',
+              displayName: item['display_name'] ?? '',
+              position: LatLng(
+                double.parse(item['lat']),
+                double.parse(item['lon']),
+              ),
+              type: item['type'] ?? item['class'] ?? 'place',
+            );
+          }).toList();
+          _isSearching = false;
+        });
       } else {
-        _results = widget.locations
-            .where(
-              (loc) => loc.name.toLowerCase().contains(query.toLowerCase()),
-            )
-            .toList();
+        setState(() => _isSearching = false);
       }
+    } catch (e) {
+      setState(() => _isSearching = false);
+    }
+  }
+
+  void _onSearchChanged(String query) {
+    _debounce?.cancel();
+    _debounce = Timer(const Duration(milliseconds: 500), () {
+      _searchLocations(query);
     });
   }
 
@@ -795,7 +1978,7 @@ class _SearchDialogState extends State<_SearchDialog> {
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
       child: Container(
         padding: const EdgeInsets.all(20),
-        constraints: const BoxConstraints(maxHeight: 400),
+        constraints: const BoxConstraints(maxHeight: 500),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -807,13 +1990,31 @@ class _SearchDialogState extends State<_SearchDialog> {
                 color: Colors.black87,
               ),
               decoration: InputDecoration(
-                hintText: 'Search emergency locations...',
+                hintText: 'Search any location...',
                 hintStyle: GoogleFonts.montserrat(
                   fontSize: 15,
                   color: Colors.grey[500],
                   fontWeight: FontWeight.w400,
                 ),
                 prefixIcon: Icon(Icons.search, color: Colors.grey[600]),
+                suffixIcon: _isSearching
+                    ? const Padding(
+                        padding: EdgeInsets.all(12),
+                        child: SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                      )
+                    : (_controller.text.isNotEmpty
+                        ? IconButton(
+                            icon: Icon(Icons.clear, color: Colors.grey[500]),
+                            onPressed: () {
+                              _controller.clear();
+                              _searchLocations('');
+                            },
+                          )
+                        : null),
                 filled: true,
                 fillColor: Colors.grey[50],
                 border: OutlineInputBorder(
@@ -833,45 +2034,128 @@ class _SearchDialogState extends State<_SearchDialog> {
                   vertical: 14,
                 ),
               ),
-              onChanged: _search,
+              onChanged: _onSearchChanged,
             ),
             const SizedBox(height: 16),
+            
+            // Emergency locations section
+            if (_emergencyResults.isNotEmpty && _controller.text.isEmpty) ...[
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  'Emergency Locations',
+                  style: GoogleFonts.montserrat(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.grey[600],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+            ],
+            
             Expanded(
-              child: ListView.builder(
+              child: ListView(
                 shrinkWrap: true,
-                itemCount: _results.length,
-                itemBuilder: (context, index) {
-                  final location = _results[index];
-                  return ListTile(
+                children: [
+                  // Emergency locations (show when no search or matching)
+                  if (_emergencyResults.isNotEmpty) ...[
+                    ..._emergencyResults.map((location) => ListTile(
+                      leading: Container(
+                        width: 36,
+                        height: 36,
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          shape: BoxShape.circle,
+                          border: Border.all(color: location.color, width: 2),
+                        ),
+                        child: Icon(location.icon, size: 18, color: location.color),
+                      ),
+                      title: Text(
+                        location.name,
+                        style: GoogleFonts.montserrat(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                      subtitle: Text(
+                        location.type.toString().split('.').last.replaceAll(RegExp(r'([A-Z])'), ' \$1').trim(),
+                        style: GoogleFonts.montserrat(fontSize: 11, color: Colors.grey[600]),
+                      ),
+                      trailing: Icon(Icons.directions, color: location.color, size: 20),
+                      onTap: () => Navigator.pop(context, {'type': 'emergency', 'location': location}),
+                    )),
+                  ],
+                  
+                  // Search results separator
+                  if (_searchResults.isNotEmpty && _controller.text.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    Divider(color: Colors.grey[300]),
+                    const SizedBox(height: 8),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        'Search Results',
+                        style: GoogleFonts.montserrat(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.grey[600],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                  ],
+                  
+                  // Real location search results
+                  ..._searchResults.map((result) => ListTile(
                     leading: Container(
-                      width: 32,
-                      height: 32,
+                      width: 36,
+                      height: 36,
                       decoration: BoxDecoration(
                         color: Colors.white,
                         shape: BoxShape.circle,
-                        border: Border.all(
-                          color: Colors.black.withOpacity(0.1),
-                        ),
+                        border: Border.all(color: result.color.withOpacity(0.5), width: 2),
                       ),
-                      child: Icon(
-                        location.icon,
-                        size: 16,
-                        color: location.color.withOpacity(0.7),
-                      ),
+                      child: Icon(result.icon, size: 18, color: result.color),
                     ),
                     title: Text(
-                      location.name,
+                      result.name,
                       style: GoogleFonts.montserrat(
-                        fontSize: 15,
+                        fontSize: 14,
                         fontWeight: FontWeight.w500,
                       ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
-                    onTap: () {
-                      Navigator.pop(context);
-                      // Could add navigation to location here
-                    },
-                  );
-                },
+                    subtitle: Text(
+                      result.displayName,
+                      style: GoogleFonts.montserrat(fontSize: 11, color: Colors.grey[600]),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    trailing: Icon(Icons.directions, color: result.color, size: 20),
+                    onTap: () => Navigator.pop(context, {'type': 'search', 'result': result}),
+                  )),
+                  
+                  // Empty state
+                  if (_searchResults.isEmpty && _emergencyResults.isEmpty && _controller.text.isNotEmpty && !_isSearching)
+                    Padding(
+                      padding: const EdgeInsets.all(20),
+                      child: Column(
+                        children: [
+                          Icon(Icons.search_off, size: 48, color: Colors.grey[400]),
+                          const SizedBox(height: 12),
+                          Text(
+                            'No locations found',
+                            style: GoogleFonts.montserrat(
+                              fontSize: 14,
+                              color: Colors.grey[600],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                ],
               ),
             ),
           ],

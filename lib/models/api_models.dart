@@ -1,15 +1,41 @@
 enum IncidentType {
-  info,
-  critical,
-  warning;
+  flood,
+  evacuationCenter,
+  emergencyServices;
 
-  String toJson() => name;
+  String toJson() {
+    switch (this) {
+      case IncidentType.flood:
+        return 'flood';
+      case IncidentType.evacuationCenter:
+        return 'evacuation_center';
+      case IncidentType.emergencyServices:
+        return 'emergency_services';
+    }
+  }
   
   static IncidentType fromJson(String json) {
-    return IncidentType.values.firstWhere(
-      (e) => e.name == json.toLowerCase(),
-      orElse: () => IncidentType.info,
-    );
+    switch (json.toLowerCase()) {
+      case 'flood':
+        return IncidentType.flood;
+      case 'evacuation_center':
+        return IncidentType.evacuationCenter;
+      case 'emergency_services':
+        return IncidentType.emergencyServices;
+      default:
+        return IncidentType.flood;
+    }
+  }
+
+  String get displayName {
+    switch (this) {
+      case IncidentType.flood:
+        return 'Flood';
+      case IncidentType.evacuationCenter:
+        return 'Evacuation Center';
+      case IncidentType.emergencyServices:
+        return 'Emergency Services';
+    }
   }
 }
 

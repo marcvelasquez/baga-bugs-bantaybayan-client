@@ -100,9 +100,11 @@ Current Weather:
 {emergency_context}
 
 Please provide:
-1. A brief weather summary (2-3 sentences){" - EMPHASIZE EMERGENCY SEVERITY" if is_emergency else (" - EMPHASIZE STORM HAS PASSED" if is_post_storm else "")}
-2. {"8-10 CRITICAL EMERGENCY ACTIONS" if is_emergency else ("6-8 POST-STORM RECOVERY ACTIONS" if is_post_storm else "5-7 specific safety tips")} based on these conditions
+1. A very brief description (a single sentence){" - EMPHASIZE EMERGENCY SEVERITY" if is_emergency else (" - EMPHASIZE STORM HAS PASSED" if is_post_storm else "")}
+2. {"3-5 CRITICAL EMERGENCY ACTIONS" if is_emergency else ("6-8 POST-STORM RECOVERY ACTIONS" if is_post_storm else "5-7 specific safety tips")} based on these conditions
 3. Flood risk assessment (low/moderate/high/severe)
+
+IMPORTANT: Each safety tip description must be exactly ONE SENTENCE - brief and actionable.
 
 Format your response as JSON with this structure:
 {{

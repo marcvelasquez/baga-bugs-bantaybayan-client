@@ -6,9 +6,9 @@ from app.core.database import Base
 
 
 class IncidentType(str, enum.Enum):
-    INFO = "info"
-    CRITICAL = "critical"
-    WARNING = "warning"
+    FLOOD = "flood"
+    EVACUATION_CENTER = "evacuation_center"
+    EMERGENCY_SERVICES = "emergency_services"
 
 
 class User(Base):
