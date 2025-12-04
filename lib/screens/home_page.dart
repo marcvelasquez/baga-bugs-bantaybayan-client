@@ -4,6 +4,7 @@ import '../services/scenario_service.dart';
 import '../services/ml_prediction_service.dart';
 import 'map_screen.dart';
 import 'situation_screen.dart';
+import 'checklist_screen.dart';
 import 'handbook_screen.dart';
 
 class HomePage extends StatefulWidget {
@@ -21,6 +22,7 @@ class _HomePageState extends State<HomePage> {
   final List<Widget> _screens = const [
     MapScreen(),
     SituationScreen(),
+    ChecklistScreen(),
     HandbookScreen(),
   ];
 
@@ -92,21 +94,21 @@ class _HomePageState extends State<HomePage> {
             Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: Colors.orange.shade50,
+                color: Colors.orange.shade900.withOpacity(0.3),
                 borderRadius: BorderRadius.circular(8),
                 border: Border.all(color: Colors.orange),
               ),
-              child: const Column(
+              child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
                     '🤖 ML Models Activated',
-                    style: TextStyle(fontWeight: FontWeight.bold),
+                    style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
                   ),
                   SizedBox(height: 4),
                   Text(
                     'Flood prediction models are now running to assess risk in your area.',
-                    style: TextStyle(fontSize: 12),
+                    style: TextStyle(fontSize: 12, color: Colors.white70),
                   ),
                 ],
               ),

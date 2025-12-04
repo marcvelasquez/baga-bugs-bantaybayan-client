@@ -17,11 +17,14 @@ class MapScreen extends StatefulWidget {
   State<MapScreen> createState() => _MapScreenState();
 }
 
-class _MapScreenState extends State<MapScreen> {
+class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver, TickerProviderStateMixin {
   GoogleMapController? _mapController;
   bool _isSOSActive = false;
   final Set<Marker> _markers = {};
-  final Set<Circle> _circles = {};
+  Set<Circle> _circles = {};
+  
+  // SOS Pulsation Animation
+  late AnimationController _pulsateController;
   
   // ML Prediction state
   FloodPrediction? _currentPrediction;
@@ -69,10 +72,96 @@ class _MapScreenState extends State<MapScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _getCurrentLocation();
     _createMarkers();
     _createFloodZones();
     _checkMLStatus();
+    
+    // Initialize pulsate animation
+    _pulsateController = AnimationController(
+      duration: const Duration(milliseconds: 1500),
+      vsync: this,
+    );
+    
+    // Add listener to update SOS pulse circle
+    _pulsateController.addListener(_updateSOSPulse);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _pulsateController.dispose();
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      // Reapply map style when app comes to foreground
+      _applyMapStyle();
+    }
+  }
+
+  void _applyMapStyle() {
+    if (_mapController != null) {
+      _mapController!.setMapStyle('''
+        [
+          {
+            "elementType": "geometry",
+            "stylers": [{"color": "#1a1621"}]
+          },
+          {
+            "elementType": "labels.text.fill",
+            "stylers": [{"color": "#ffffff"}]
+          },
+          {
+            "elementType": "labels.text.stroke",
+            "stylers": [{"color": "#1a1621"}]
+          },
+          {
+            "featureType": "water",
+            "elementType": "geometry",
+            "stylers": [{"color": "#2a2234"}]
+          },
+          {
+            "featureType": "road",
+            "elementType": "geometry",
+            "stylers": [{"color": "#3a3047"}]
+          },
+          {
+            "featureType": "road",
+            "elementType": "labels.text.fill",
+            "stylers": [{"color": "#ffffff"}]
+          },
+          {
+            "featureType": "road.highway",
+            "elementType": "geometry",
+            "stylers": [{"color": "#4a4057"}]
+          },
+          {
+            "featureType": "poi",
+            "elementType": "geometry",
+            "stylers": [{"color": "#2a2234"}]
+          },
+          {
+            "featureType": "poi",
+            "elementType": "labels.text.fill",
+            "stylers": [{"color": "#ffffff"}]
+          },
+          {
+            "featureType": "administrative",
+            "elementType": "geometry.stroke",
+            "stylers": [{"color": "#3a3047"}]
+          },
+          {
+            "featureType": "administrative",
+            "elementType": "labels.text.fill",
+            "stylers": [{"color": "#ffffff"}]
+          }
+        ]
+      ''');
+    }
   }
 
   Future<void> _checkMLStatus() async {
@@ -276,6 +365,35 @@ class _MapScreenState extends State<MapScreen> {
     setState(() {
       _isSOSActive = true;
     });
+    // Start the pulsate animation
+    if (!_pulsateController.isAnimating) {
+      _pulsateController.repeat();
+    }
+  }
+
+  void _updateSOSPulse() {
+    // Update the SOS pulse circle based on animation value
+    if (_isSOSActive && mounted) {
+      final animationValue = _pulsateController.value;
+      // Radius pulsates between 50 and 300 meters
+      final radius = 50 + (animationValue * 250);
+      final opacity = 0.8 - (animationValue * 0.5); // Fade as it expands
+      
+      setState(() {
+        // Remove old pulse and add new one with updated radius
+        _circles = _circles.where((circle) => circle.circleId.value != 'sos_pulse').toSet();
+        _circles.add(
+          Circle(
+            circleId: const CircleId('sos_pulse'),
+            center: _currentLocation,
+            radius: radius,
+            fillColor: Colors.red.withOpacity(opacity * 0.3),
+            strokeColor: Colors.red.withOpacity(opacity),
+            strokeWidth: 3,
+          ),
+        );
+      });
+    }
   }
 
   @override
@@ -298,29 +416,8 @@ class _MapScreenState extends State<MapScreen> {
             ),
             onMapCreated: (GoogleMapController controller) {
               _mapController = controller;
-              if (isDarkMode) {
-                controller.setMapStyle('''
-                  [
-                    {
-                      "elementType": "geometry",
-                      "stylers": [{"color": "#242f3e"}]
-                    },
-                    {
-                      "elementType": "labels.text.fill",
-                      "stylers": [{"color": "#746855"}]
-                    },
-                    {
-                      "elementType": "labels.text.stroke",
-                      "stylers": [{"color": "#242f3e"}]
-                    },
-                    {
-                      "featureType": "water",
-                      "elementType": "geometry",
-                      "stylers": [{"color": "#17263c"}]
-                    }
-                  ]
-                ''');
-              }
+              // Apply dark mode styling
+              _applyMapStyle();
             },
             markers: _markers,
             circles: _circles,
@@ -342,17 +439,15 @@ class _MapScreenState extends State<MapScreen> {
                   vertical: 8,
                 ),
                 decoration: BoxDecoration(
-                  color: isDarkMode ? Colors.black : Colors.white,
+                  color: const Color(0xFF1a1621),
                   border: Border(
                     bottom: BorderSide(
-                      color: isDarkMode
-                          ? Colors.white.withOpacity(0.1)
-                          : Colors.black.withOpacity(0.05),
+                      color: Colors.white.withOpacity(0.1),
                     ),
                   ),
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.black.withOpacity(0.05),
+                      color: Colors.black.withOpacity(0.15),
                       blurRadius: 10,
                       offset: const Offset(0, 2),
                     ),
@@ -364,9 +459,7 @@ class _MapScreenState extends State<MapScreen> {
                     Icon(
                       Icons.wifi_off,
                       size: 20,
-                      color: isDarkMode
-                          ? Colors.white.withOpacity(0.5)
-                          : Colors.black.withOpacity(0.5),
+                      color: Colors.white.withOpacity(0.5),
                     ),
                     const SizedBox(width: 12),
                     // GPS coordinates (stacked)
@@ -403,16 +496,16 @@ class _MapScreenState extends State<MapScreen> {
           Positioned(
             left: 0,
             right: 0,
-            top: 120,
+            top: 100,
             child: Container(
               margin: const EdgeInsets.symmetric(horizontal: 20),
               padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
               decoration: BoxDecoration(
-                color: Colors.white,
+                color: const Color(0xFF3a3047),
                 borderRadius: BorderRadius.circular(30),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.08),
+                    color: Colors.black.withOpacity(0.15),
                     blurRadius: 12,
                     offset: const Offset(0, 4),
                   ),
@@ -430,13 +523,13 @@ class _MapScreenState extends State<MapScreen> {
                 },
                 child: Row(
                   children: [
-                    Icon(Icons.search, color: Colors.grey[600], size: 22),
+                    Icon(Icons.search, color: Colors.white60, size: 22),
                     const SizedBox(width: 14),
                     Text(
                       'Search emergency locations...',
                       style: GoogleFonts.montserrat(
                         fontSize: 15,
-                        color: Colors.grey[500],
+                        color: Colors.white60,
                         fontWeight: FontWeight.w400,
                       ),
                     ),
@@ -453,16 +546,14 @@ class _MapScreenState extends State<MapScreen> {
             child: Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: isDarkMode ? Colors.black : Colors.white,
+                color: const Color(0xFF1a1621),
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(
-                  color: isDarkMode
-                      ? Colors.white.withOpacity(0.1)
-                      : Colors.black.withOpacity(0.05),
+                  color: Colors.white.withOpacity(0.1),
                 ),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.08),
+                    color: Colors.black.withOpacity(0.15),
                     blurRadius: 12,
                     offset: const Offset(0, 4),
                   ),
@@ -526,7 +617,7 @@ class _MapScreenState extends State<MapScreen> {
                       ),
                     ),
                     const SizedBox(height: 12),
-                    Divider(height: 1, color: Colors.grey.withOpacity(0.3)),
+                    Divider(height: 1, color: Colors.white.withOpacity(0.2)),
                     const SizedBox(height: 12),
                   ],
                   if (_isCalculatingRisk) ...[
@@ -545,7 +636,7 @@ class _MapScreenState extends State<MapScreen> {
                       ],
                     ),
                     const SizedBox(height: 12),
-                    Divider(height: 1, color: Colors.grey.withOpacity(0.3)),
+                    Divider(height: 1, color: Colors.white.withOpacity(0.2)),
                     const SizedBox(height: 12),
                   ],
                   _buildLegendItem(
@@ -599,11 +690,11 @@ class _MapScreenState extends State<MapScreen> {
             bottom: 110,
             child: FloatingActionButton(
               onPressed: _recenterMap,
-              backgroundColor: isDarkMode ? Colors.grey[800] : Colors.white,
+              backgroundColor: const Color(0xFF3a3047),
               mini: true,
-              child: Icon(
+              child: const Icon(
                 Icons.my_location,
-                color: isDarkMode ? Colors.white : Colors.black,
+                color: Colors.white,
               ),
             ),
           ),
@@ -641,9 +732,7 @@ class _MapScreenState extends State<MapScreen> {
               color: Colors.white,
               shape: BoxShape.circle,
               border: Border.all(
-                color: isDarkMode
-                    ? Colors.white.withOpacity(0.2)
-                    : Colors.black.withOpacity(0.1),
+                color: Colors.white.withOpacity(0.2),
               ),
             ),
             child: Icon(icon, size: 10, color: color.withOpacity(0.7)),
@@ -655,9 +744,7 @@ class _MapScreenState extends State<MapScreen> {
             decoration: BoxDecoration(
               shape: BoxShape.circle,
               border: Border.all(
-                color: isDarkMode
-                    ? Colors.white.withOpacity(0.2)
-                    : Colors.black.withOpacity(0.1),
+                color: Colors.white.withOpacity(0.2),
               ),
             ),
             child: Center(
@@ -680,9 +767,7 @@ class _MapScreenState extends State<MapScreen> {
           style: theme.textTheme.bodySmall?.copyWith(
             fontSize: 12,
             fontWeight: FontWeight.w500,
-            color: isDarkMode
-                ? Colors.white.withOpacity(0.8)
-                : Colors.black.withOpacity(0.8),
+            color: Colors.white.withOpacity(0.8),
           ),
         ),
       ],
@@ -791,7 +876,7 @@ class _SearchDialogState extends State<_SearchDialog> {
   @override
   Widget build(BuildContext context) {
     return Dialog(
-      backgroundColor: Colors.white,
+      backgroundColor: const Color(0xFF2a2234),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
       child: Container(
         padding: const EdgeInsets.all(20),
@@ -804,18 +889,18 @@ class _SearchDialogState extends State<_SearchDialog> {
               autofocus: true,
               style: GoogleFonts.montserrat(
                 fontSize: 15,
-                color: Colors.black87,
+                color: Colors.white,
               ),
               decoration: InputDecoration(
                 hintText: 'Search emergency locations...',
                 hintStyle: GoogleFonts.montserrat(
                   fontSize: 15,
-                  color: Colors.grey[500],
+                  color: Colors.white54,
                   fontWeight: FontWeight.w400,
                 ),
-                prefixIcon: Icon(Icons.search, color: Colors.grey[600]),
+                prefixIcon: const Icon(Icons.search, color: Colors.white60),
                 filled: true,
-                fillColor: Colors.grey[50],
+                fillColor: const Color(0xFF3a3047),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(16),
                   borderSide: BorderSide.none,
@@ -847,10 +932,10 @@ class _SearchDialogState extends State<_SearchDialog> {
                       width: 32,
                       height: 32,
                       decoration: BoxDecoration(
-                        color: Colors.white,
+                        color: const Color(0xFF3a3047),
                         shape: BoxShape.circle,
                         border: Border.all(
-                          color: Colors.black.withOpacity(0.1),
+                          color: Colors.white.withOpacity(0.1),
                         ),
                       ),
                       child: Icon(

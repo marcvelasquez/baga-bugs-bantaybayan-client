@@ -89,10 +89,8 @@ class ChatMessageWidget extends StatelessWidget {
                     fontSize: 14,
                     height: 1.4,
                     color: isBot
-                        ? Colors.black87
-                        : (isDarkMode
-                              ? AppColors.darkBackgroundDeep
-                              : Colors.white),
+                        ? (isDarkMode ? Colors.white : Colors.black87)
+                        : Colors.white,
                   ),
                 ),
               ),

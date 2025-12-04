@@ -36,31 +36,23 @@ class BantayBayanApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final themeProvider = Provider.of<ThemeProvider>(context);
-
-    // Update system UI overlay based on theme
+    // Force dark mode system UI
     SystemChrome.setSystemUIOverlayStyle(
-      SystemUiOverlayStyle(
+      const SystemUiOverlayStyle(
         statusBarColor: Colors.transparent,
-        statusBarIconBrightness: themeProvider.isDarkMode
-            ? Brightness.light
-            : Brightness.dark,
-        systemNavigationBarColor: themeProvider.isDarkMode
-            ? Colors.black
-            : Colors.white,
-        systemNavigationBarIconBrightness: themeProvider.isDarkMode
-            ? Brightness.light
-            : Brightness.dark,
+        statusBarIconBrightness: Brightness.light,
+        systemNavigationBarColor: Color(0xFF1a1621),
+        systemNavigationBarIconBrightness: Brightness.light,
       ),
     );
 
     return MaterialApp(
       title: 'BantayBayan',
       debugShowCheckedModeBanner: false,
-      theme: AppTheme.lightTheme,
+      theme: AppTheme.darkTheme,
       darkTheme: AppTheme.darkTheme,
-      themeMode: themeProvider.themeMode,
-      home: const LoginScreen(), // Start on dashboard for now
+      themeMode: ThemeMode.dark,
+      home: const LoginScreen(),
       routes: {
         '/home': (context) => const HomePage(),
         '/login': (context) => const LoginScreen(),

@@ -1,13 +1,14 @@
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:provider/provider.dart';
 import 'dart:ui';
 import 'dart:math' as math;
-import '../core/theme/theme_provider.dart';
 import '../services/api_service.dart';
 import '../models/api_models.dart';
+import '../core/theme/colors.dart';
+import '../core/theme/theme_provider.dart';
 
 class SituationScreen extends StatefulWidget {
   const SituationScreen({super.key});
@@ -16,7 +17,8 @@ class SituationScreen extends StatefulWidget {
   State<SituationScreen> createState() => _SituationScreenState();
 }
 
-class _SituationScreenState extends State<SituationScreen> {
+class _SituationScreenState extends State<SituationScreen>
+    with WidgetsBindingObserver {
   GoogleMapController? _mapController;
   final Set<Marker> _markers = {};
   final Set<Circle> _circles = {};
@@ -33,10 +35,86 @@ class _SituationScreenState extends State<SituationScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _getCurrentLocation();
     _loadReportStats();
     _loadReports();
     _loadWeather();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      // Reapply map style when app comes to foreground
+      _applyMapStyle();
+    }
+  }
+
+  void _applyMapStyle() {
+    if (_mapController != null) {
+      _mapController!.setMapStyle('''
+        [
+          {
+            "elementType": "geometry",
+            "stylers": [{"color": "#1a1621"}]
+          },
+          {
+            "elementType": "labels.text.fill",
+            "stylers": [{"color": "#ffffff"}]
+          },
+          {
+            "elementType": "labels.text.stroke",
+            "stylers": [{"color": "#1a1621"}]
+          },
+          {
+            "featureType": "water",
+            "elementType": "geometry",
+            "stylers": [{"color": "#2a2234"}]
+          },
+          {
+            "featureType": "road",
+            "elementType": "geometry",
+            "stylers": [{"color": "#3a3047"}]
+          },
+          {
+            "featureType": "road",
+            "elementType": "labels.text.fill",
+            "stylers": [{"color": "#ffffff"}]
+          },
+          {
+            "featureType": "road.highway",
+            "elementType": "geometry",
+            "stylers": [{"color": "#4a4057"}]
+          },
+          {
+            "featureType": "poi",
+            "elementType": "geometry",
+            "stylers": [{"color": "#2a2234"}]
+          },
+          {
+            "featureType": "poi",
+            "elementType": "labels.text.fill",
+            "stylers": [{"color": "#ffffff"}]
+          },
+          {
+            "featureType": "administrative",
+            "elementType": "geometry.stroke",
+            "stylers": [{"color": "#3a3047"}]
+          },
+          {
+            "featureType": "administrative",
+            "elementType": "labels.text.fill",
+            "stylers": [{"color": "#ffffff"}]
+          }
+        ]
+      ''');
+    }
   }
 
   Future<void> _loadWeather() async {
@@ -363,7 +441,9 @@ class _SituationScreenState extends State<SituationScreen> {
     final isDarkMode = themeProvider.isDarkMode;
 
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: isDarkMode
+          ? AppColors.darkBackgroundDeep
+          : AppColors.lightBackgroundPrimary,
       body: Stack(
         children: [
           // Google Maps
@@ -374,24 +454,8 @@ class _SituationScreenState extends State<SituationScreen> {
             ),
             onMapCreated: (GoogleMapController controller) {
               _mapController = controller;
-              if (isDarkMode) {
-                controller.setMapStyle('''
-                  [
-                    {
-                      "elementType": "geometry",
-                      "stylers": [{"color": "#242f3e"}]
-                    },
-                    {
-                      "elementType": "labels.text.fill",
-                      "stylers": [{"color": "#746855"}]
-                    },
-                    {
-                      "elementType": "labels.text.stroke",
-                      "stylers": [{"color": "#242f3e"}]
-                    }
-                  ]
-                ''');
-              }
+              // Apply dark mode styling
+              _applyMapStyle();
             },
             markers: _markers,
             circles: _circles,
@@ -407,239 +471,176 @@ class _SituationScreenState extends State<SituationScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Header
-                Padding(
-                  padding: const EdgeInsets.all(16),
+                // Merged Header + Active Reports
+                Container(
+                  margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  decoration: BoxDecoration(
+                    color: isDarkMode
+                        ? AppColors.darkBackgroundElevated.withOpacity(0.95)
+                        : AppColors.lightBackgroundSecondary.withOpacity(0.95),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: isDarkMode
+                          ? AppColors.darkBorder
+                          : AppColors.lightBorderPrimary,
+                      width: 1,
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.1),
+                        blurRadius: 8,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
+                  ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        'Situation Reports',
-                        style: GoogleFonts.montserrat(
-                          fontSize: 20,
-                          fontWeight: FontWeight.w700,
-                          color: Colors.black87,
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        _userPinLocation == null
-                            ? 'Tap on the map to pin a location'
-                            : 'Location pinned - Ready to report',
-                        style: GoogleFonts.montserrat(
-                          fontSize: 13,
-                          color: _userPinLocation == null
-                              ? Colors.grey[600]
-                              : Colors.green[700],
-                          fontWeight: _userPinLocation == null
-                              ? FontWeight.normal
-                              : FontWeight.w600,
-                        ),
+                      // Title row
+                      Row(
+                        children: [
+                          Icon(
+                            Icons.location_on_outlined,
+                            color: isDarkMode
+                                ? AppColors.darkTextPrimary
+                                : AppColors.lightTextPrimary,
+                            size: 20,
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            'Situation Report',
+                            style: GoogleFonts.montserrat(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                              color: isDarkMode
+                                  ? AppColors.darkTextPrimary
+                                  : AppColors.lightTextPrimary,
+                            ),
+                          ),
+                          const Spacer(),
+                          Container(
+                            decoration: BoxDecoration(
+                              color: isDarkMode
+                                  ? const Color(0xFFFF6B6B).withOpacity(0.15)
+                                  : Colors.blue[700]!.withOpacity(0.15),
+                              shape: BoxShape.circle,
+                            ),
+                            child: IconButton(
+                              onPressed: () {
+                                _loadReportStats();
+                                _loadReports();
+                              },
+                              icon: Icon(
+                                Icons.refresh,
+                                color: isDarkMode
+                                    ? const Color(0xFFFF6B6B)
+                                    : Colors.blue[700],
+                                size: 20,
+                              ),
+                              tooltip: 'Refresh reports',
+                              padding: const EdgeInsets.all(8),
+                              constraints: const BoxConstraints(),
+                            ),
+                          ),
+                        ],
                       ),
                       const SizedBox(height: 12),
-                      // Weather card
-                      if (_currentWeather != null)
-                        ClipRRect(
-                          borderRadius: BorderRadius.circular(16),
-                          child: BackdropFilter(
-                            filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-                            child: Container(
-                              padding: const EdgeInsets.all(12),
-                              decoration: BoxDecoration(
-                                color: Colors.white.withOpacity(0.95),
-                                borderRadius: BorderRadius.circular(16),
-                                border: Border.all(
-                                  color: Colors.black.withOpacity(0.1),
-                                ),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.black.withOpacity(0.08),
-                                    blurRadius: 12,
-                                    offset: const Offset(0, 4),
-                                  ),
-                                ],
-                              ),
-                              child: Row(
-                                children: [
-                                  Icon(
-                                    _getWeatherIcon(
-                                      _currentWeather!.weatherCode,
-                                    ),
-                                    color: Colors.blue,
-                                    size: 40,
-                                  ),
-                                  const SizedBox(width: 12),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          '${_currentWeather!.temperature.toStringAsFixed(1)}°C',
-                                          style: GoogleFonts.montserrat(
-                                            fontSize: 24,
-                                            fontWeight: FontWeight.w700,
-                                            color: Colors.black87,
-                                          ),
-                                        ),
-                                        Text(
-                                          _currentWeather!.description,
-                                          style: GoogleFonts.montserrat(
-                                            fontSize: 12,
-                                            color: Colors.grey[600],
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                  if (_currentWeather!.rain > 0) ...[
-                                    Column(
-                                      children: [
-                                        Icon(
-                                          Icons.water_drop,
-                                          color: Colors.blue[700],
-                                          size: 20,
-                                        ),
-                                        Text(
-                                          '${_currentWeather!.rain.toStringAsFixed(1)}mm',
-                                          style: GoogleFonts.montserrat(
-                                            fontSize: 11,
-                                            fontWeight: FontWeight.w600,
-                                            color: Colors.blue[700],
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ],
-                                ],
-                              ),
+                      // Active Reports stats row
+                      Row(
+                        children: [
+                          const Icon(
+                            Icons.warning_amber_rounded,
+                            color: Colors.orange,
+                            size: 16,
+                          ),
+                          const SizedBox(width: 5),
+                          Text(
+                            'Active Reports',
+                            style: GoogleFonts.montserrat(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                              color: isDarkMode
+                                  ? Colors.white
+                                  : AppColors.lightTextPrimary,
                             ),
                           ),
-                        ),
-                      if (_currentWeather != null) const SizedBox(height: 12),
-                      // Active Reports card
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(16),
-                        child: BackdropFilter(
-                          filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 10,
-                            ),
-                            decoration: BoxDecoration(
-                              color: Colors.white.withOpacity(0.95),
-                              borderRadius: BorderRadius.circular(16),
-                              border: Border.all(
-                                color: Colors.black.withOpacity(0.1),
-                              ),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: Colors.black.withOpacity(0.08),
-                                  blurRadius: 12,
-                                  offset: const Offset(0, 4),
+                          const Spacer(),
+                          if (_isLoadingStats)
+                            SizedBox(
+                              width: 12,
+                              height: 12,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                valueColor: AlwaysStoppedAnimation<Color>(
+                                  isDarkMode
+                                      ? Colors.white54
+                                      : Colors.black54,
                                 ),
-                              ],
-                            ),
-                            child: IntrinsicHeight(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Row(
-                                    children: [
-                                      const Icon(
-                                        Icons.warning_amber_rounded,
-                                        color: Colors.orange,
-                                        size: 16,
-                                      ),
-                                      const SizedBox(width: 5),
-                                      Text(
-                                        'Active Reports',
-                                        style: GoogleFonts.montserrat(
-                                          fontSize: 13,
-                                          fontWeight: FontWeight.w600,
-                                          color: Colors.black87,
-                                        ),
-                                      ),
-                                      const Spacer(),
-                                      if (_isLoadingStats)
-                                        SizedBox(
-                                          width: 12,
-                                          height: 12,
-                                          child: CircularProgressIndicator(
-                                            strokeWidth: 2,
-                                            valueColor:
-                                                AlwaysStoppedAnimation<Color>(
-                                                  Colors.grey[400]!,
-                                                ),
-                                          ),
-                                        )
-                                      else
-                                        GestureDetector(
-                                          onTap: () {
-                                            _loadReportStats();
-                                            _loadReports();
-                                          },
-                                          child: Icon(
-                                            Icons.refresh,
-                                            size: 16,
-                                            color: Colors.grey[600],
-                                          ),
-                                        ),
-                                      const SizedBox(width: 6),
-                                      Text(
-                                        _reportStats?.date ?? _getCurrentDate(),
-                                        style: GoogleFonts.montserrat(
-                                          fontSize: 10,
-                                          fontWeight: FontWeight.w500,
-                                          color: Colors.grey[600],
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 8),
-                                  Row(
-                                    children: [
-                                      Expanded(
-                                        flex: 1,
-                                        child: _StatBox(
-                                          label: 'Info',
-                                          count: _reportStats?.infoCount ?? 0,
-                                          color: Colors.blue,
-                                        ),
-                                      ),
-                                      const SizedBox(width: 8),
-                                      Expanded(
-                                        flex: 1,
-                                        child: _StatBox(
-                                          label: 'Critical',
-                                          count:
-                                              _reportStats?.criticalCount ?? 0,
-                                          color: Color(0xFFFF6B6B),
-                                        ),
-                                      ),
-                                      const SizedBox(width: 8),
-                                      Expanded(
-                                        flex: 1,
-                                        child: _StatBox(
-                                          label: 'Warning',
-                                          count:
-                                              _reportStats?.warningCount ?? 0,
-                                          color: Colors.orange,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ],
                               ),
+                            )
+                          else
+                            GestureDetector(
+                              onTap: () {
+                                _loadReportStats();
+                                _loadReports();
+                              },
+                              child: Icon(
+                                Icons.refresh,
+                                size: 14,
+                                color: isDarkMode
+                                    ? Colors.white.withOpacity(0.6)
+                                    : Colors.black.withOpacity(0.6),
+                              ),
+                            ),
+                          const SizedBox(width: 6),
+                          Text(
+                            _reportStats?.date ?? _getCurrentDate(),
+                            style: GoogleFonts.montserrat(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w500,
+                              color: isDarkMode
+                                  ? Colors.white.withOpacity(0.6)
+                                  : Colors.black.withOpacity(0.6),
                             ),
                           ),
-                        ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      // Stats boxes (compact)
+                      Row(
+                        children: [
+                          Expanded(
+                            flex: 1,
+                            child: _StatBox(
+                              label: 'Info',
+                              count: _reportStats?.infoCount ?? 0,
+                              color: Colors.blue,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            flex: 1,
+                            child: _StatBox(
+                              label: 'Warning',
+                              count: _reportStats?.warningCount ?? 0,
+                              color: Colors.orange,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            flex: 1,
+                            child: _StatBox(
+                              label: 'Critical',
+                              count: _reportStats?.criticalCount ?? 0,
+                              color: const Color(0xFFFF6B6B),
+                            ),
+                          ),
+                        ],
                       ),
                     ],
                   ),
                 ),
-
                 const Spacer(),
 
                 // Report button at bottom (only show if pin is placed)
@@ -652,32 +653,16 @@ class _SituationScreenState extends State<SituationScreen> {
             ),
           ),
 
-          // Debug: Reload reports button (top right)
-          Positioned(
-            right: 16,
-            top: 80,
-            child: FloatingActionButton(
-              onPressed: () {
-                debugPrint('🔄 Manual reload triggered');
-                _loadReports();
-              },
-              backgroundColor: Colors.blue,
-              mini: true,
-              elevation: 4,
-              child: const Icon(Icons.refresh, color: Colors.white),
-            ),
-          ),
-
           // Recenter Button (bottom right)
           Positioned(
             right: 16,
             bottom: 20,
             child: FloatingActionButton(
               onPressed: _recenterMap,
-              backgroundColor: Colors.white,
+              backgroundColor: const Color(0xFF3a3047),
               mini: true,
               elevation: 4,
-              child: const Icon(Icons.my_location, color: Colors.black87),
+              child: const Icon(Icons.my_location, color: Colors.white),
             ),
           ),
         ],
@@ -812,7 +797,7 @@ class _ReportButtonState extends State<_ReportButton> {
       return Container(
         padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
         decoration: BoxDecoration(
-          color: Colors.black87,
+          color: const Color(0xFF3a3047),
           borderRadius: BorderRadius.circular(16),
         ),
         child: Row(
@@ -848,7 +833,7 @@ class _ReportButtonState extends State<_ReportButton> {
           borderRadius: BorderRadius.circular(16),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.08),
+              color: Colors.white.withOpacity(0.08),
               offset: const Offset(0, 2),
               blurRadius: 8,
             ),
@@ -890,14 +875,14 @@ class _ReportButtonState extends State<_ReportButton> {
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.08),
+            color: Colors.white.withOpacity(0.08),
             offset: const Offset(0, 2),
             blurRadius: 8,
           ),
         ],
       ),
       child: Material(
-        color: Colors.black87,
+        color: const Color(0xFF3a3047),
         borderRadius: BorderRadius.circular(16),
         child: InkWell(
           onTap: _showReportModal,
@@ -962,7 +947,7 @@ class _ReportIncidentModalState extends State<_ReportIncidentModal> {
   @override
   Widget build(BuildContext context) {
     return Dialog(
-      backgroundColor: Colors.white,
+      backgroundColor: const Color(0xFF2a2234),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
       child: Container(
         padding: const EdgeInsets.all(24),
@@ -976,12 +961,12 @@ class _ReportIncidentModalState extends State<_ReportIncidentModal> {
                   Container(
                     padding: const EdgeInsets.all(10),
                     decoration: BoxDecoration(
-                      color: Colors.black87.withOpacity(0.1),
+                      color: Colors.white.withOpacity(0.1),
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: const Icon(
                       Icons.add_alert,
-                      color: Colors.black87,
+                      color: Colors.white,
                       size: 24,
                     ),
                   ),
@@ -995,14 +980,14 @@ class _ReportIncidentModalState extends State<_ReportIncidentModal> {
                           style: GoogleFonts.montserrat(
                             fontSize: 18,
                             fontWeight: FontWeight.w700,
-                            color: Colors.black87,
+                            color: Colors.white,
                           ),
                         ),
                         Text(
                           'Help keep your community safe',
                           style: GoogleFonts.montserrat(
                             fontSize: 12,
-                            color: Colors.grey[600],
+                            color: Colors.white60,
                           ),
                         ),
                       ],
@@ -1016,7 +1001,7 @@ class _ReportIncidentModalState extends State<_ReportIncidentModal> {
                 style: GoogleFonts.montserrat(
                   fontSize: 14,
                   fontWeight: FontWeight.w600,
-                  color: Colors.black87,
+                  color: Colors.white,
                 ),
               ),
               const SizedBox(height: 12),
@@ -1035,7 +1020,7 @@ class _ReportIncidentModalState extends State<_ReportIncidentModal> {
                           decoration: BoxDecoration(
                             color: isSelected
                                 ? color.withOpacity(0.15)
-                                : Colors.grey[100],
+                                : const Color(0xFF3a3047),
                             borderRadius: BorderRadius.circular(12),
                             border: Border.all(
                               color: isSelected ? color : Colors.transparent,
@@ -1050,7 +1035,7 @@ class _ReportIncidentModalState extends State<_ReportIncidentModal> {
                                     : type == 'Warning'
                                     ? Icons.warning_amber_rounded
                                     : Icons.info,
-                                color: isSelected ? color : Colors.grey[600],
+                                color: isSelected ? color : Colors.white60,
                                 size: 24,
                               ),
                               const SizedBox(height: 4),
@@ -1061,7 +1046,7 @@ class _ReportIncidentModalState extends State<_ReportIncidentModal> {
                                   fontWeight: isSelected
                                       ? FontWeight.w600
                                       : FontWeight.w500,
-                                  color: isSelected ? color : Colors.grey[700],
+                                  color: isSelected ? color : Colors.white54,
                                 ),
                               ),
                             ],
@@ -1078,7 +1063,7 @@ class _ReportIncidentModalState extends State<_ReportIncidentModal> {
                 style: GoogleFonts.montserrat(
                   fontSize: 14,
                   fontWeight: FontWeight.w600,
-                  color: Colors.black87,
+                  color: Colors.white,
                 ),
               ),
               const SizedBox(height: 8),
@@ -1087,16 +1072,16 @@ class _ReportIncidentModalState extends State<_ReportIncidentModal> {
                 maxLines: 3,
                 style: GoogleFonts.montserrat(
                   fontSize: 14,
-                  color: Colors.black87,
+                  color: Colors.white,
                 ),
                 decoration: InputDecoration(
                   hintText: 'Describe what happened...',
                   hintStyle: GoogleFonts.montserrat(
                     fontSize: 14,
-                    color: Colors.grey[500],
+                    color: Colors.white54,
                   ),
                   filled: true,
-                  fillColor: Colors.grey[50],
+                  fillColor: const Color(0xFF3a3047),
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
                     borderSide: BorderSide.none,
@@ -1115,14 +1100,14 @@ class _ReportIncidentModalState extends State<_ReportIncidentModal> {
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(12),
                         ),
-                        side: BorderSide(color: Colors.grey[300]!),
+                        side: const BorderSide(color: Colors.white54),
                       ),
                       child: Text(
                         'Cancel',
                         style: GoogleFonts.montserrat(
                           fontSize: 13,
                           fontWeight: FontWeight.w600,
-                          color: Colors.grey[700],
+                          color: Colors.white54,
                         ),
                       ),
                     ),
@@ -1224,12 +1209,12 @@ class _ReportIncidentModalState extends State<_ReportIncidentModal> {
                               }
                             },
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.black87,
+                        backgroundColor: const Color(0xFF3a3047),
                         padding: const EdgeInsets.symmetric(vertical: 12),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(12),
                         ),
-                        disabledBackgroundColor: Colors.grey[300],
+                        disabledBackgroundColor: const Color(0xFF2a2234),
                       ),
                       child: Text(
                         'Submit',
@@ -1248,19 +1233,19 @@ class _ReportIncidentModalState extends State<_ReportIncidentModal> {
               Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: Colors.grey[100],
+                  color: const Color(0xFF3a3047),
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Row(
                   children: [
-                    Icon(Icons.location_on, size: 16, color: Colors.grey[700]),
+                    const Icon(Icons.location_on, size: 16, color: Colors.white54),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
                         'Lat: ${widget.location.latitude.toStringAsFixed(6)}, Lng: ${widget.location.longitude.toStringAsFixed(6)}',
                         style: GoogleFonts.montserrat(
                           fontSize: 11,
-                          color: Colors.grey[700],
+                          color: Colors.white54,
                         ),
                       ),
                     ),
@@ -1387,7 +1372,7 @@ class _NearbyReportsDialogState extends State<_NearbyReportsDialog> {
   @override
   Widget build(BuildContext context) {
     return Dialog(
-      backgroundColor: Colors.white,
+      backgroundColor: const Color(0xFF2a2234),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
       child: Container(
         padding: const EdgeInsets.all(24),
@@ -1401,7 +1386,7 @@ class _NearbyReportsDialogState extends State<_NearbyReportsDialog> {
                 Container(
                   padding: const EdgeInsets.all(10),
                   decoration: BoxDecoration(
-                    color: Colors.orange.withOpacity(0.1),
+                    color: Colors.orange.withOpacity(0.2),
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: const Icon(
@@ -1420,14 +1405,14 @@ class _NearbyReportsDialogState extends State<_NearbyReportsDialog> {
                         style: GoogleFonts.montserrat(
                           fontSize: 18,
                           fontWeight: FontWeight.w700,
-                          color: Colors.black87,
+                          color: Colors.white,
                         ),
                       ),
                       Text(
                         '${widget.nearbyReports.length} report${widget.nearbyReports.length > 1 ? 's' : ''} within 100m',
                         style: GoogleFonts.montserrat(
                           fontSize: 12,
-                          color: Colors.grey[600],
+                          color: Colors.white60,
                         ),
                       ),
                     ],
@@ -1474,7 +1459,7 @@ class _NearbyReportsDialogState extends State<_NearbyReportsDialog> {
                                   style: GoogleFonts.montserrat(
                                     fontSize: 14,
                                     fontWeight: FontWeight.w600,
-                                    color: Colors.black87,
+                                    color: Colors.white,
                                   ),
                                 ),
                                 if (report.description != null) ...[
@@ -1483,7 +1468,7 @@ class _NearbyReportsDialogState extends State<_NearbyReportsDialog> {
                                     report.description!,
                                     style: GoogleFonts.montserrat(
                                       fontSize: 12,
-                                      color: Colors.grey[600],
+                                      color: Colors.white60,
                                     ),
                                     maxLines: 2,
                                     overflow: TextOverflow.ellipsis,
@@ -1503,7 +1488,7 @@ class _NearbyReportsDialogState extends State<_NearbyReportsDialog> {
                                   isUpvoted
                                       ? Icons.thumb_up
                                       : Icons.thumb_up_outlined,
-                                  color: isUpvoted ? color : Colors.grey[600],
+                                  color: isUpvoted ? color : Colors.white60,
                                   size: 20,
                                 ),
                                 tooltip: isUpvoted
@@ -1515,7 +1500,7 @@ class _NearbyReportsDialogState extends State<_NearbyReportsDialog> {
                                 style: GoogleFonts.montserrat(
                                   fontSize: 12,
                                   fontWeight: FontWeight.w600,
-                                  color: Colors.black87,
+                                  color: Colors.white,
                                 ),
                               ),
                             ],
@@ -1540,14 +1525,14 @@ class _NearbyReportsDialogState extends State<_NearbyReportsDialog> {
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(12),
                       ),
-                      side: BorderSide(color: Colors.grey[300]!),
+                      side: const BorderSide(color: Colors.white54),
                     ),
                     child: Text(
                       'Cancel',
                       style: GoogleFonts.montserrat(
                         fontSize: 13,
                         fontWeight: FontWeight.w600,
-                        color: Colors.grey[700],
+                        color: Colors.white54,
                       ),
                     ),
                   ),
@@ -1558,7 +1543,7 @@ class _NearbyReportsDialogState extends State<_NearbyReportsDialog> {
                     onPressed: _createNewReport,
                     style: ElevatedButton.styleFrom(
                       padding: const EdgeInsets.symmetric(vertical: 12),
-                      backgroundColor: Colors.black87,
+                      backgroundColor: const Color(0xFF3a3047),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(12),
                       ),

@@ -307,14 +307,6 @@ class _ProfileDropdownState extends State<ProfileDropdown> {
                                           ),
                                         ),
                                       ),
-                                      Switch(
-                                        value: isDarkMode,
-                                        onChanged: (value) {
-                                          themeProvider.toggleTheme();
-                                        },
-                                        activeThumbColor: const Color(0xFFFF6B6B),
-                                        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                                      ),
                                     ],
                                   ),
                                   

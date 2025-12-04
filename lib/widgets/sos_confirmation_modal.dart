@@ -23,12 +23,10 @@ class SOSConfirmationModal extends StatelessWidget {
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
       child: Container(
         decoration: BoxDecoration(
-          color: isDarkMode ? Colors.black : Colors.white,
+          color: const Color(0xFF1a1621),
           borderRadius: BorderRadius.circular(20),
           border: Border.all(
-            color: isDarkMode
-                ? Colors.white.withOpacity(0.1)
-                : Colors.black.withOpacity(0.05),
+            color: Colors.white.withOpacity(0.1),
           ),
           boxShadow: [
             BoxShadow(
@@ -47,9 +45,7 @@ class SOSConfirmationModal extends StatelessWidget {
               decoration: BoxDecoration(
                 border: Border(
                   bottom: BorderSide(
-                    color: isDarkMode
-                        ? Colors.white.withOpacity(0.1)
-                        : Colors.black.withOpacity(0.05),
+                    color: Colors.white.withOpacity(0.1),
                   ),
                 ),
               ),
@@ -80,7 +76,7 @@ class SOSConfirmationModal extends StatelessWidget {
                     onPressed: () => Navigator.of(context).pop(),
                     icon: Icon(
                       Icons.close,
-                      color: isDarkMode ? Colors.white : Colors.black,
+                      color: Colors.white,
                     ),
                     padding: EdgeInsets.zero,
                     constraints: const BoxConstraints(),
@@ -98,9 +94,7 @@ class SOSConfirmationModal extends StatelessWidget {
                   Text(
                     'This will send an emergency signal with your location:',
                     style: theme.textTheme.bodySmall?.copyWith(
-                      color: isDarkMode
-                          ? Colors.white.withOpacity(0.6)
-                          : Colors.black.withOpacity(0.6),
+                      color: Colors.white.withOpacity(0.6),
                     ),
                   ),
                   const SizedBox(height: 20),
@@ -110,9 +104,7 @@ class SOSConfirmationModal extends StatelessWidget {
                     width: double.infinity,
                     padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
-                      color: isDarkMode
-                          ? Colors.white.withOpacity(0.05)
-                          : Colors.black.withOpacity(0.03),
+                      color: Colors.white.withOpacity(0.05),
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: Column(
@@ -161,9 +153,7 @@ class SOSConfirmationModal extends StatelessWidget {
                           style: OutlinedButton.styleFrom(
                             padding: const EdgeInsets.symmetric(vertical: 16),
                             side: BorderSide(
-                              color: isDarkMode
-                                  ? Colors.white.withOpacity(0.2)
-                                  : Colors.black.withOpacity(0.2),
+                              color: Colors.white.withOpacity(0.2),
                             ),
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(12),
@@ -172,7 +162,7 @@ class SOSConfirmationModal extends StatelessWidget {
                           child: Text(
                             'Cancel',
                             style: TextStyle(
-                              color: isDarkMode ? Colors.white : Colors.black,
+                              color: Colors.white,
                               fontWeight: FontWeight.w500,
                             ),
                           ),
@@ -190,14 +180,10 @@ class SOSConfirmationModal extends StatelessWidget {
                                 content: Text(
                                   'SOS signal sent!',
                                   style: TextStyle(
-                                    color: isDarkMode
-                                        ? Colors.black
-                                        : Colors.white,
+                                    color: Colors.white,
                                   ),
                                 ),
-                                backgroundColor: isDarkMode
-                                    ? Colors.white
-                                    : Colors.black,
+                                backgroundColor: const Color(0xFF2a2234),
                                 behavior: SnackBarBehavior.floating,
                                 shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(8),
@@ -248,9 +234,7 @@ class SOSConfirmationModal extends StatelessWidget {
             style: theme.textTheme.labelSmall?.copyWith(
               fontSize: 11,
               fontWeight: FontWeight.w500,
-              color: isDarkMode
-                  ? Colors.white.withOpacity(0.5)
-                  : Colors.black.withOpacity(0.5),
+              color: Colors.white.withOpacity(0.5),
             ),
           ),
         ),

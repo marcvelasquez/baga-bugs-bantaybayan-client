@@ -105,12 +105,12 @@ class _ChatScreenState extends State<ChatScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: const Color(0xFF1a1621),
       appBar: AppBar(
-        backgroundColor: Colors.white,
+        backgroundColor: const Color(0xFF1a1621),
         elevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
+          icon: const Icon(Icons.arrow_back, color: Colors.white),
           onPressed: () => Navigator.pop(context),
         ),
         title: Row(
@@ -189,7 +189,7 @@ class _ChatScreenState extends State<ChatScreen> {
           Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              color: Colors.white,
+              color: const Color(0xFF2a2234),
               boxShadow: [
                 BoxShadow(
                   color: AppColors.shadowMedium,
@@ -206,16 +206,16 @@ class _ChatScreenState extends State<ChatScreen> {
                       controller: _messageController,
                       style: GoogleFonts.montserrat(
                         fontSize: 14,
-                        color: Colors.black87,
+                        color: Colors.white,
                       ),
                       decoration: InputDecoration(
                         hintText: 'Type your question...',
                         hintStyle: GoogleFonts.montserrat(
                           fontSize: 14,
-                          color: Colors.grey[500],
+                          color: Colors.white60,
                         ),
                         filled: true,
-                        fillColor: Colors.grey[50],
+                        fillColor: const Color(0xFF3a3047),
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(20),
                           borderSide: BorderSide.none,
@@ -235,7 +235,7 @@ class _ChatScreenState extends State<ChatScreen> {
                       shape: BoxShape.circle,
                       boxShadow: [
                         BoxShadow(
-                          color: Colors.black.withOpacity(0.08),
+                          color: Colors.black.withOpacity(0.2),
                           blurRadius: 8,
                           offset: const Offset(0, 2),
                         ),
@@ -269,8 +269,8 @@ class _ChatScreenState extends State<ChatScreen> {
         ),
         decoration: BoxDecoration(
           color: message.isUser
-              ? Colors.white
-              : Colors.grey[100],
+              ? const Color(0xFFFF6B6B)
+              : const Color(0xFF3a3047),
           borderRadius: BorderRadius.only(
             topLeft: const Radius.circular(14),
             topRight: const Radius.circular(14),
@@ -279,7 +279,7 @@ class _ChatScreenState extends State<ChatScreen> {
           ),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.04),
+              color: Colors.black.withOpacity(0.15),
               blurRadius: 4,
               offset: const Offset(0, 1),
             ),
@@ -293,9 +293,7 @@ class _ChatScreenState extends State<ChatScreen> {
               style: GoogleFonts.montserrat(
                 fontSize: 14,
                 height: 1.4,
-                color: message.isUser
-                    ? Colors.white
-                    : Colors.black87,
+                color: Colors.white,
               ),
             ),
             const SizedBox(height: 4),
@@ -303,9 +301,7 @@ class _ChatScreenState extends State<ChatScreen> {
               _formatTime(message.timestamp),
               style: GoogleFonts.montserrat(
                 fontSize: 11,
-                color: message.isUser
-                    ? Colors.white.withOpacity(0.7)
-                    : Colors.grey[600],
+                color: Colors.white.withOpacity(0.7),
               ),
             ),
           ],

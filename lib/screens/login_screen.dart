@@ -38,12 +38,13 @@ class _LoginScreenState extends State<LoginScreen> {
       builder: (context, child) {
         return Theme(
           data: Theme.of(context).copyWith(
-            colorScheme: ColorScheme.light(
+            colorScheme: ColorScheme.dark(
               primary: const Color(0xFFFF6B6B),
               onPrimary: Colors.white,
-              surface: Colors.white,
-              onSurface: Colors.black87,
+              surface: const Color(0xFF2a2234),
+              onSurface: Colors.white,
             ),
+            dialogBackgroundColor: const Color(0xFF1a1621),
           ),
           child: child!,
         );
@@ -333,7 +334,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                     : 'Don\'t have an account? ',
                                 style: GoogleFonts.montserrat(
                                   fontSize: 14,
-                                  color: Colors.grey[600],
+                                  color: Colors.white70,
                                 ),
                               ),
                               TextSpan(
@@ -361,7 +362,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         textAlign: TextAlign.center,
                         style: GoogleFonts.montserrat(
                           fontSize: 12,
-                          color: Colors.grey[600],
+                          color: Colors.white70,
                         ),
                       ),
                     ),

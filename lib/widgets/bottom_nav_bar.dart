@@ -1,6 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
-import '../core/theme/theme_provider.dart';
 
 class BantayBottomNavBar extends StatelessWidget {
   final int currentIndex;
@@ -14,23 +12,18 @@ class BantayBottomNavBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final themeProvider = Provider.of<ThemeProvider>(context);
-    final isDarkMode = themeProvider.isDarkMode;
-
     return Container(
       decoration: BoxDecoration(
-        color: isDarkMode ? Colors.black : Colors.white,
+        color: const Color(0xFF1a1621),
         border: Border(
           top: BorderSide(
-            color: isDarkMode
-                ? Colors.white.withOpacity(0.1)
-                : Colors.black.withOpacity(0.05),
+            color: Colors.white.withOpacity(0.1),
             width: 1,
           ),
         ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
+            color: Colors.black.withOpacity(0.2),
             offset: const Offset(0, -2),
             blurRadius: 10,
           ),
@@ -42,10 +35,8 @@ class BantayBottomNavBar extends StatelessWidget {
           onTap: onTap,
           backgroundColor: Colors.transparent,
           elevation: 0,
-          selectedItemColor: isDarkMode ? Colors.white : Colors.black,
-          unselectedItemColor: isDarkMode
-              ? Colors.white.withOpacity(0.4)
-              : Colors.black.withOpacity(0.4),
+          selectedItemColor: Colors.white,
+          unselectedItemColor: Colors.white.withOpacity(0.4),
           type: BottomNavigationBarType.fixed,
           showSelectedLabels: true,
           showUnselectedLabels: true,
@@ -69,6 +60,11 @@ class BantayBottomNavBar extends StatelessWidget {
               icon: Icon(Icons.warning_amber_rounded),
               activeIcon: Icon(Icons.warning_rounded),
               label: 'Reports',
+            ),
+            BottomNavigationBarItem(
+              icon: Icon(Icons.checklist_rounded),
+              activeIcon: Icon(Icons.checklist_rounded),
+              label: 'Checklist',
             ),
             BottomNavigationBarItem(
               icon: Icon(Icons.menu_book_outlined),
